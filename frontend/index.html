@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>visual_car · 行人跟随控制</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">VISUAL CAR</p>
+        <h1>行人检测与跟随控制</h1>
+        <p class="subtitle">海康照片流、深度测距、目标跟踪和 ROS 速度输出</p>
+      </div>
+      <span id="connection" class="badge">正在连接</span>
+    </header>
+
+    <section class="card panel device-panel">
+      <h2>摄像头设备</h2>
+      <p class="hint">这里控制本服务启动的海康 ROS 节点。若节点由其他终端启动，请先在那里停止，再用本服务启动。</p>
+      <div class="actions">
+        <button id="startDevice" type="button">启动摄像头</button>
+        <button id="stopDevice" type="button" class="secondary">停止摄像头</button>
+      </div>
+      <p id="deviceMessage" class="message" role="status"></p>
+      <form id="cameraForm" class="camera-settings">
+        <label>曝光时间（微秒）
+          <input id="exposure" type="number" min="32" max="999812" step="1" value="40000" required>
+        </label>
+        <label>增益（0–23）
+          <input id="gain" type="number" min="0" max="23" step="0.1" value="4" required>
+        </label>
+        <button type="submit">应用亮度设置</button>
+      </form>
+      <p class="hint">室内逆光可先试 40000 微秒、增益 4；窗外会更容易过曝。调亮度不会改变照片保存频率。</p>
+    </section>
+
+    <section class="preview card" aria-label="实时检测结果">
+      <img id="live" alt="实时检测和深度结果">
+      <div id="noImage" class="no-image">正在等待检测结果…</div>
+      <div class="preview-caption">左侧显示人物实例、编号和距离；右侧显示深度图。默认仅保存在内存缓冲；开启落盘后才写入 data 目录。</div>
+    </section>
+
+    <section class="card panel motion-panel">
+      <div class="section-heading">
+        <div><h2>运动控制</h2><p class="hint">自动跟随按所选 ID 保持距离和图像居中；目标丢失立即发送零速度。</p></div>
+        <button id="forceStop" type="button" class="danger">强制停止</button>
+      </div>
+      <div class="actions">
+        <button id="modeButton" type="button" class="secondary">切换为手动运行</button>
+        <button id="followButton" type="button">开始跟随</button>
+        <button id="releaseStop" type="button" class="secondary" hidden>解除强制停止</button>
+      </div>
+      <form id="followForm" class="follow-settings">
+        <label>相机离地高度（m）<input id="camera_height_m" type="number" min="0.01" max="2" step="0.01" value="0.5" required></label>
+        <label>跟随距离（m）<input id="follow_distance_m" type="number" min="0.3" max="10" step="0.05" value="1" required></label>
+        <label>跟随人物 ID<input id="target_id" type="number" min="0" step="1" value="0" required></label>
+        <label>测距方式<select id="distance_mode"><option value="depth">全身深度图</option><option value="footpoint">脚底地面射线</option><option value="fused">融合</option></select></label>
+        <label>处理采样频率（帧/秒）<input id="process_fps" type="number" min="0.1" max="30" step="0.1" value="3" required></label>
+        <button type="submit">应用跟随参数</button>
+      </form>
+      <details class="advanced"><summary>检测与 PID 参数</summary><div id="advancedFields" class="advanced-grid"></div></details>
+      <p id="motionMessage" class="message" role="status"></p>
+      <dl class="stats motion-stats">
+        <div><dt>运动模式</dt><dd id="modeStatus">—</dd></div>
+        <div><dt>目标状态</dt><dd id="targetStatus">—</dd></div>
+        <div><dt>实时 linear.x</dt><dd id="linearX">0 m/s</dd></div>
+        <div><dt>实时 angular.z</dt><dd id="angularZ">0 rad/s</dd></div>
+        <div><dt>底盘剩余电量</dt><dd id="batteryLevel">等待反馈</dd></div>
+        <div><dt>已处理图像</dt><dd id="processedCount">—</dd></div>
+        <div><dt>已绘制结果图</dt><dd id="drawnCount">—</dd></div>
+        <div><dt>跳过待处理图像</dt><dd id="skippedCount">—</dd></div>
+        <div><dt>跳过待绘制结果</dt><dd id="skippedDrawCount">—</dd></div>
+        <div><dt>最近控制时延</dt><dd id="processingLatency">—</dd></div>
+        <div><dt>最近画面时延</dt><dd id="displayLatency">—</dd></div>
+      </dl>
+      <div id="manualPad" class="manual-pad" aria-label="手动方向键">
+        <button type="button" data-direction="up" class="up">↑ 前进</button>
+        <button type="button" data-direction="left" class="left">← 逆时针</button>
+        <button type="button" data-direction="down" class="down">↓ 后退</button>
+        <button type="button" data-direction="right" class="right">→ 顺时针</button>
+      </div>
+    </section>
+
+    <section class="card panel config-panel">
+      <h2>配置方案</h2>
+      <p class="hint">保存当前采集、相机和跟随参数；选择配置后点击“应用所选配置”，才会更新页面和运行系统。</p>
+      <div class="actions">
+        <button id="saveConfig" type="button">保存当前配置</button>
+        <select id="configSelect" aria-label="选择配置文件"><option value="">选择配置文件…</option></select>
+        <button id="loadConfig" type="button" class="secondary">应用所选配置</button>
+      </div>
+      <p id="configMessage" class="message" role="status"></p>
+    </section>
+
+    <div class="columns">
+      <section class="card panel">
+        <h2>采集控制</h2>
+        <p class="hint">相机采集频率和处理采样频率分别配置；处理较慢时跳过旧照片。默认只保留内存缓冲，程序退出后自动消失。</p>
+        <form id="captureForm">
+          <label>每秒采集张数
+            <input id="fps" name="fps" type="number" min="0.1" max="60" step="0.1" value="5" required>
+          </label>
+          <label>采集时长（秒）
+            <input id="duration" name="duration" type="number" min="0" step="1" value="0" required>
+            <small>0 表示一直采集，直到点击停止或退出服务。</small>
+          </label>
+          <div class="actions">
+            <button type="submit">开始采集</button>
+            <button id="stopButton" type="button" class="secondary">停止采集</button>
+            <button id="storageButton" type="button" class="secondary">存储方式：仅内存</button>
+          </div>
+        </form>
+        <p id="actionMessage" class="message" role="status"></p>
+      </section>
+
+      <section class="card panel">
+        <h2>运行状态</h2>
+        <dl id="status" class="stats">
+          <div><dt>摄像头进程</dt><dd id="cameraStatus">—</dd></div>
+          <div><dt>图像采集</dt><dd id="saveStatus">—</dd></div>
+          <div><dt>采集频率</dt><dd id="saveFps">—</dd></div>
+          <div><dt>采集时长</dt><dd id="saveDuration">—</dd></div>
+          <div><dt>存储方式</dt><dd id="storageStatus">—</dd></div>
+          <div><dt>最近图像</dt><dd id="imageAge">—</dd></div>
+          <div><dt>已收到帧</dt><dd id="received">—</dd></div>
+          <div><dt>本次进入缓冲</dt><dd id="saved">—</dd></div>
+          <div><dt>本次写入磁盘</dt><dd id="persisted">—</dd></div>
+          <div><dt>当前保留</dt><dd id="retained">—</dd></div>
+          <div><dt>缓冲丢弃</dt><dd id="dropped">—</dd></div>
+          <div><dt>剩余磁盘</dt><dd id="diskFree">—</dd></div>
+        </dl>
+        <p id="error" class="error" role="alert"></p>
+      </section>
+    </div>
+
+    <section class="card panel history">
+      <div class="section-heading">
+        <div><h2>最近原始照片</h2><p class="hint">显示最近 10 张内存照片；开启落盘时同时写入 data/img_raw。</p></div>
+        <button id="refreshFrames" class="secondary" type="button">刷新</button>
+      </div>
+      <div id="frames" class="frame-grid"></div>
+    </section>
+    <section class="card panel history">
+      <div class="section-heading">
+        <div><h2>最近检测结果图片</h2><p class="hint">显示最近 10 张内存结果；开启落盘时同时写入 data/img_processed。</p></div>
+        <button id="refreshProcessed" class="secondary" type="button">刷新</button>
+      </div>
+      <div id="processedFrames" class="frame-grid"></div>
+    </section>
+  </main>
+</body>
+</html>

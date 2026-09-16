@@ -1,0 +1,37 @@
+Client Software Suite for Linux for Use with 
+Gigabit Ethernet(GigE) and USB 3.0 Cameras (U3V)
+================================================================
+
+System Requirements
+===================
+
+GigE
+----
+A GigE network adapter that supports jumbo frames is recommended. Concerning
+performance and reliability we made best experiences with the Intel PRO 1000,
+I210 and I350 series.
+
+USB
+---
+For U3V devices a USB3-capable USB controller is necessary. 
+
+
+Installation
+=============
+
+The installation of Client for Linux is described in the INSTALL text document.
+
+
+Documentation
+=============
+
+The installation includes a "doc" sub-folder containing the
+Programmer's Guide and API reference documentation. 
+
+
+Sample Programs
+===============
+
+The installation archive includes a set of sample programs. 
+They are located in the "Samples" folder.
+

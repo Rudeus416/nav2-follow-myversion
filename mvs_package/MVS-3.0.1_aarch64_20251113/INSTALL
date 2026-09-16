@@ -1,0 +1,32 @@
+Installation Guide for Client Software Suite for Linux x86 and ARM
+
+Installation of the Client Software Suite
+=======================================================
+
+To install the Client Software Suite for Linux, you need the
+correct installation package for your architecture. We provide packages
+for x86, x86_64, armhf and arm64.
+
+This installation guide assumes that you are going to install the
+Client Software Suite to the /opt/Client directory and that
+you have already extracted the Client-x.y.z_<ARCH>_<ReleaseDate>.tar.gz archive
+to your home directory. 
+
+Note: Root permissions are needed to write to /opt.
+
+To install the Client Software Suite in /opt/Client
+follow these steps:
+
+  1. Change to the directory which contains this INSTALL file, e.g.:
+       cd ~/Client-x.y.z-<ARCH>
+
+  2. Execute the installer script
+       ./setup.sh
+
+  3. Execute /opt/Client/bin/Client to test your cameras.
+
+The Client-x.y.z_<ARCH>_<ReleaseDate>.tar.gz package contains the following files:
+Client_<ARCH>.tar.gz                # Client, SDK and runtime files, sample files
+INSTALL
+README
+setup.sh                         # installer for Client Software Suite 

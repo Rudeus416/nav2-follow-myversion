@@ -1,0 +1,4 @@
+# Ignore generated data, but keep parameter configurations.
+/data/*
+!/data/param_configs/
+!/data/param_configs/**
