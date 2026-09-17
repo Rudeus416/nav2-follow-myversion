@@ -23,7 +23,9 @@ CAN_IF="${CAN_IF:-can0}"
 CAN_BITRATE="${CAN_BITRATE:-500000}"
 WEB_PORT="${WEB_PORT:-8890}"
 CAPTURE_FPS="${CAPTURE_FPS:-5}"
-PROCESS_FPS="${PROCESS_FPS:-5}"
+CAMERA_INPUT_FPS="${CAMERA_INPUT_FPS:-30}"
+PROCESS_FPS="${PROCESS_FPS:-15}"
+DEPTH_FPS="${DEPTH_FPS:-5}"
 MAX_FRAMES="${MAX_FRAMES:-20}"
 
 mkdir -p "${RUNTIME_DIR}"
@@ -175,9 +177,11 @@ start_services() {
     set -u
     cd "$4"
     exec "$5" -B "$4/control.py" \
-      --fps "$6" --process-fps "$7" --max-frames "$8" --port "$9"
+      --fps "$6" --camera-fps "$7" --process-fps "$8" --depth-fps "$9" \
+      --max-frames "${10}" --port "${11}"
   ' _ "${ROS_SETUP}" "${CAMERA_SETUP}" "${RANGER_WS}" "${ROOT}" "${PYTHON}" \
-    "${CAPTURE_FPS}" "${PROCESS_FPS}" "${MAX_FRAMES}" "${WEB_PORT}" \
+    "${CAPTURE_FPS}" "${CAMERA_INPUT_FPS}" "${PROCESS_FPS}" "${DEPTH_FPS}" \
+    "${MAX_FRAMES}" "${WEB_PORT}" \
     >"${CONTROL_LOG}" 2>&1 </dev/null 9>&- &
   local control_pid=$!
   printf '%s\n' "${control_pid}" >"${CONTROL_PID_FILE}"
@@ -286,6 +290,9 @@ s = json.loads(os.environ["STATUS_PAYLOAD"])
 print(f"  网页：正常，http://127.0.0.1:{os.environ.get('WEB_PORT_VALUE', '8890')}/")
 print(f"  控制：模式={s['motion_mode']}，跟随={s['following']}，强停={s['force_stopped']}")
 print(f"  指令：linear.x={s['linear_x_mps']} m/s，angular.z={s['angular_z_radps']} rad/s")
+print(f"  帧率：相机输入={s['tracking_input_fps']}，跟踪={s['tracker_effective_fps']}，深度={s['depth_effective_fps']} FPS")
+print(f"  跳帧：最近={s['latest_skipped_camera_frames']}，累计={s['skipped_camera_frames_total']}")
+print(f"  同帧融合：累计={s['fused_total']}，最新帧={s['latest_fused_frame_id']}，等待T/M2={s['join_pending_tracking']}/{s['join_pending_depth']}")
 PY
   else
     echo "  网页：无法访问"
@@ -333,7 +340,7 @@ usage() {
   $0 restart         安全停止后重新启动
   $0 logs [组件]     查看日志；组件可为 all、control、ranger
 
-可选环境变量：CAN_IF、CAN_BITRATE、WEB_PORT、CAPTURE_FPS、PROCESS_FPS、MAX_FRAMES
+可选环境变量：CAN_IF、CAN_BITRATE、WEB_PORT、CAPTURE_FPS、CAMERA_INPUT_FPS、PROCESS_FPS、DEPTH_FPS、MAX_FRAMES
 EOF
 }
 

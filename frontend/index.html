@@ -41,7 +41,7 @@
     <section class="preview card" aria-label="实时检测结果">
       <img id="live" alt="实时检测和深度结果">
       <div id="noImage" class="no-image">正在等待检测结果…</div>
-      <div class="preview-caption">左侧显示人物实例、编号和距离；右侧显示深度图。默认仅保存在内存缓冲；开启落盘后才写入 data 目录。</div>
+      <div class="preview-caption">左侧 Tracking 与右侧深度图来自同一帧号；只有精确配对完成后才绘制。默认仅保存在内存缓冲；开启落盘后才写入 data 目录。</div>
     </section>
 
     <section class="card panel motion-panel">
@@ -52,27 +52,51 @@
       <div class="actions">
         <button id="modeButton" type="button" class="secondary">切换为手动运行</button>
         <button id="followButton" type="button">开始跟随</button>
+        <button id="persistentIdentityButton" type="button" class="secondary" aria-pressed="false" disabled>持续身份认证：关闭</button>
         <button id="releaseStop" type="button" class="secondary" hidden>解除强制停止</button>
       </div>
+      <p class="hint">持续身份认证只会尝试找回当前选中的目标；目标丢失和候选确认期间始终保持停车，连续确认后才恢复原逻辑 ID。</p>
       <form id="followForm" class="follow-settings">
         <label>相机离地高度（m）<input id="camera_height_m" type="number" min="0.01" max="2" step="0.01" value="0.5" required></label>
         <label>跟随距离（m）<input id="follow_distance_m" type="number" min="0.3" max="10" step="0.05" value="1" required></label>
         <label>跟随人物 ID<input id="target_id" type="number" min="0" step="1" value="0" required></label>
         <label>测距方式<select id="distance_mode"><option value="depth">全身深度图</option><option value="footpoint">脚底地面射线</option><option value="fused">融合</option></select></label>
-        <label>处理采样频率（帧/秒）<input id="process_fps" type="number" min="0.1" max="30" step="0.1" value="3" required></label>
+        <label>跟踪频率上限（帧/秒）<input id="process_fps" type="number" min="0.1" max="30" step="0.1" value="15" required></label>
+        <label>深度频率上限（帧/秒）<input id="depth_fps" type="number" min="0.1" max="10" step="0.1" value="5" required></label>
         <button type="submit">应用跟随参数</button>
       </form>
-      <details class="advanced"><summary>检测与 PID 参数</summary><div id="advancedFields" class="advanced-grid"></div></details>
+      <details class="advanced"><summary>检测、跟踪与 PID 参数</summary><div id="advancedFields" class="advanced-grid"></div>
+        <p class="hint">若要启用 BoT-SORT 的低分框救回，检测器最低置信度应不高于跟踪低分阈值；跟踪低分阈值必须低于跟踪高分阈值。ReID 最低 IoU 门槛越低，越允许大跳动后的外观匹配，但误关联风险也越高。</p>
+      </details>
       <p id="motionMessage" class="message" role="status"></p>
       <dl class="stats motion-stats">
         <div><dt>运动模式</dt><dd id="modeStatus">—</dd></div>
         <div><dt>目标状态</dt><dd id="targetStatus">—</dd></div>
+        <div><dt>持续身份状态</dt><dd id="identityState">—</dd></div>
+        <div><dt>目标 ReID 特征库</dt><dd id="identityGallery">—</dd></div>
+        <div><dt>身份重绑定次数</dt><dd id="identityReacquisitions">—</dd></div>
         <div><dt>实时 linear.x</dt><dd id="linearX">0 m/s</dd></div>
         <div><dt>实时 angular.z</dt><dd id="angularZ">0 rad/s</dd></div>
         <div><dt>底盘剩余电量</dt><dd id="batteryLevel">等待反馈</dd></div>
         <div><dt>已处理图像</dt><dd id="processedCount">—</dd></div>
+        <div><dt>已同帧融合</dt><dd id="fusedCount">—</dd></div>
+        <div><dt>最新融合帧号</dt><dd id="fusedFrameId">—</dd></div>
+        <div><dt>实际跟踪频率</dt><dd id="trackerFps">—</dd></div>
+        <div><dt>跟踪帧间隔</dt><dd id="trackerInterval">—</dd></div>
+        <div><dt>Tracking 端到端时延</dt><dd id="trackerLatency">—</dd></div>
+        <div><dt>转向控制时延</dt><dd id="bearingLatency">—</dd></div>
+        <div><dt>Kalman 时间尺度</dt><dd id="kalmanTimeScale">—</dd></div>
+        <div><dt>相邻跟踪帧跳过相机帧</dt><dd id="cameraSkipped">—</dd></div>
+        <div><dt>实际深度频率</dt><dd id="depthFps">—</dd></div>
+        <div><dt>深度结果年龄</dt><dd id="depthAge">—</dd></div>
+        <div><dt>深度队列丢弃</dt><dd id="depthDropped">—</dd></div>
+        <div><dt>C/N/M1/M2/T/F 缓冲</dt><dd id="pipelineBuffers">—</dd></div>
+        <div><dt>等待配对 T/M2</dt><dd id="joinPending">—</dd></div>
+        <div><dt>配对过期/队列丢弃</dt><dd id="joinDropped">—</dd></div>
+        <div><dt>拒绝过时控制结果</dt><dd id="staleControlRejected">—</dd></div>
+        <div><dt>当前配置版本</dt><dd id="configVersion">—</dd></div>
         <div><dt>已绘制结果图</dt><dd id="drawnCount">—</dd></div>
-        <div><dt>跳过待处理图像</dt><dd id="skippedCount">—</dd></div>
+        <div><dt>拒绝重复/逆序图像</dt><dd id="skippedCount">—</dd></div>
         <div><dt>跳过待绘制结果</dt><dd id="skippedDrawCount">—</dd></div>
         <div><dt>最近控制时延</dt><dd id="processingLatency">—</dd></div>
         <div><dt>最近画面时延</dt><dd id="displayLatency">—</dd></div>
@@ -99,9 +123,12 @@
     <div class="columns">
       <section class="card panel">
         <h2>采集控制</h2>
-        <p class="hint">相机采集频率和处理采样频率分别配置；处理较慢时跳过旧照片。默认只保留内存缓冲，程序退出后自动消失。</p>
+        <p class="hint">相机送入跟踪的频率与原图留存频率相互独立；C 缓冲保留多帧，但模型每次选择其中最新帧，避免控制延迟累积。</p>
         <form id="captureForm">
-          <label>每秒采集张数
+          <label>相机送入跟踪（帧/秒）
+            <input id="tracking_fps" name="tracking_fps" type="number" min="0.1" max="60" step="0.1" value="30" required>
+          </label>
+          <label>每秒保留原图张数
             <input id="fps" name="fps" type="number" min="0.1" max="60" step="0.1" value="5" required>
           </label>
           <label>采集时长（秒）
@@ -122,7 +149,10 @@
         <dl id="status" class="stats">
           <div><dt>摄像头进程</dt><dd id="cameraStatus">—</dd></div>
           <div><dt>图像采集</dt><dd id="saveStatus">—</dd></div>
-          <div><dt>采集频率</dt><dd id="saveFps">—</dd></div>
+          <div><dt>ROS 实际输入频率</dt><dd id="cameraReceivedFps">—</dd></div>
+          <div><dt>送入跟踪频率</dt><dd id="trackingInputFps">—</dd></div>
+          <div><dt>JPEG 队列/替换</dt><dd id="jpegQueue">—</dd></div>
+          <div><dt>原图留存频率</dt><dd id="saveFps">—</dd></div>
           <div><dt>采集时长</dt><dd id="saveDuration">—</dd></div>
           <div><dt>存储方式</dt><dd id="storageStatus">—</dd></div>
           <div><dt>最近图像</dt><dd id="imageAge">—</dd></div>

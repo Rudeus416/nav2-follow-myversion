@@ -34,6 +34,7 @@ from sensor_msgs.msg import Image
 ROOT = Path(__file__).resolve().parent
 FRAME_NAME = re.compile(r"frame_[0-9]{19}\.jpg")
 MIN_FREE_BYTES = 50 * 1024 * 1024
+PREVIEW_MAX_WIDTH = 1280
 
 
 class FrameStore:
@@ -158,6 +159,7 @@ class FrameStore:
 
 class CaptureSettings(BaseModel):
     fps: float = Field(default=5.0, gt=0, le=60)
+    tracking_fps: float = Field(default=30.0, gt=0, le=60)
     duration: float = Field(default=0.0, ge=0, description="Seconds; 0 means unlimited")
     persist_images: bool = False
 
@@ -177,21 +179,100 @@ class CameraBridge:
         self._sequence = 0
         self._last_encode = 0.0
         self._last_save = 0.0
+        self._last_tracking = 0.0
         self._last_image = 0.0
+        self._last_received = 0.0
+        self._received_fps = 0.0
+        self._tracking_fps = 0.0
+        self._frame_sequence = 0
         self._capture_started: float | None = None
         self._saving = True
         self.received_total = 0
+        self.tracking_total = 0
         self.encoded_total = 0
+        self.dropped_encodes = 0
         self.error = ""
-        # Optional real-time consumer.  The callback receives an owned BGR
-        # array before JPEG encoding/writing, so inference is not coupled to
-        # the archival path.
+        # Optional real-time consumer. The callback receives an owned BGR
+        # array, monotonic source time, and received-frame sequence before JPEG
+        # encoding/writing, so inference is not coupled to the archival path.
         self.on_frame = None
+        # JPEG is deliberately kept out of the ROS callback. A one-slot
+        # mailbox bounds latency: when encoding falls behind, the newest image
+        # replaces the stale preview. A pending save request is carried onto
+        # the replacement image rather than silently discarded.
+        self._encode_pending: queue.Queue[
+            tuple[np.ndarray, bool, bool] | None
+        ] = queue.Queue(maxsize=1)
+        self._encode_closed = False
+        self._encode_thread = threading.Thread(
+            target=self._encode_loop, daemon=True, name="camera-jpeg-worker"
+        )
+        self._encode_thread.start()
+
+    def _offer_encode(self, image: np.ndarray, preview_due: bool, save_due: bool):
+        try:
+            self._encode_pending.put_nowait((image, preview_due, save_due))
+            return
+        except queue.Full:
+            pass
+        try:
+            _, pending_preview, pending_save = self._encode_pending.get_nowait()
+            self._encode_pending.task_done()
+            preview_due = preview_due or pending_preview
+            save_due = save_due or pending_save
+            with self._condition:
+                self.dropped_encodes += 1
+        except queue.Empty:
+            pass
+        self._encode_pending.put_nowait((image, preview_due, save_due))
+
+    def _encode_loop(self):
+        while True:
+            item = self._encode_pending.get()
+            if item is None:
+                self._encode_pending.task_done()
+                return
+            image, preview_due, save_due = item
+            try:
+                encoded_image = image
+                if preview_due and not save_due and image.shape[1] > PREVIEW_MAX_WIDTH:
+                    scale = PREVIEW_MAX_WIDTH / image.shape[1]
+                    encoded_image = cv2.resize(
+                        image,
+                        (PREVIEW_MAX_WIDTH, max(1, round(image.shape[0] * scale))),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                ok, buffer = cv2.imencode(
+                    ".jpg", encoded_image, [cv2.IMWRITE_JPEG_QUALITY, 80],
+                )
+                if not ok:
+                    raise ValueError("JPEG encoding failed")
+                jpeg = buffer.tobytes()
+                with self._condition:
+                    self._latest = jpeg
+                    self._sequence += 1
+                    self.encoded_total += 1
+                    self.error = ""
+                    self._condition.notify_all()
+                if save_due:
+                    self.store.submit(jpeg, self.settings.persist_images)
+            except Exception as exc:
+                with self._condition:
+                    self.error = str(exc)
+            finally:
+                self._encode_pending.task_done()
 
     def on_image(self, image: Image):
         now = time.monotonic()
         with self._condition:
             self.received_total += 1
+            self._frame_sequence += 1
+            frame_sequence = self._frame_sequence
+            if self._last_received > 0:
+                instant_fps = 1.0 / max(now - self._last_received, 1e-6)
+                self._received_fps = (instant_fps if self._received_fps == 0
+                                      else 0.9 * self._received_fps + 0.1 * instant_fps)
+            self._last_received = now
             self._last_image = now
             if self._saving and self._capture_started is None:
                 self._capture_started = now
@@ -200,12 +281,21 @@ class CameraBridge:
                     self._saving = False
             preview_due = now - self._last_encode >= 1.0 / self.preview_fps
             save_due = self._saving and now - self._last_save >= 1.0 / self.settings.fps
-            if not (preview_due or save_due):
+            tracking_due = (self._saving and self.on_frame is not None
+                            and now - self._last_tracking >= 1.0 / self.settings.tracking_fps)
+            if not (preview_due or save_due or tracking_due):
                 return
             if preview_due:
                 self._last_encode = now
             if save_due:
                 self._last_save = now
+            if tracking_due:
+                if self._last_tracking > 0:
+                    instant_fps = 1.0 / max(now - self._last_tracking, 1e-6)
+                    self._tracking_fps = (instant_fps if self._tracking_fps == 0
+                                          else 0.9 * self._tracking_fps + 0.1 * instant_fps)
+                self._last_tracking = now
+                self.tracking_total += 1
 
         try:
             if image.encoding != "rgb8":
@@ -217,20 +307,14 @@ class CameraBridge:
             )
             rgb = rgb_rows[:, : image.width * 3].reshape(image.height, image.width, 3)
             bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            if save_due and self.on_frame is not None:
-                self.on_frame(bgr, now)
-            ok, buffer = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if not ok:
-                raise ValueError("JPEG encoding failed")
-            jpeg = buffer.tobytes()
-            with self._condition:
-                self._latest = jpeg
-                self._sequence += 1
-                self.encoded_total += 1
-                self.error = ""
-                self._condition.notify_all()
-            if save_due:
-                self.store.submit(jpeg, self.settings.persist_images)
+            if tracking_due and self.on_frame is not None:
+                # The camera sequence identifies gaps independently of the
+                # wall-clock timestamp. The converted BGR array owns its data.
+                self.on_frame(bgr, now, frame_sequence)
+            # Tracking-only frames stay as BGR. Preview/archive JPEG work is
+            # handed to a latest-frame worker and never blocks this callback.
+            if preview_due or save_due:
+                self._offer_encode(bgr, preview_due, save_due)
         except Exception as exc:
             with self._condition:
                 self.error = str(exc)
@@ -240,6 +324,8 @@ class CameraBridge:
             self.settings = settings
             self._capture_started = None
             self._last_save = 0.0
+            self._last_tracking = 0.0
+            self._tracking_fps = 0.0
             self._saving = True
 
     def set_persistence(self, enabled: bool):
@@ -265,11 +351,17 @@ class CameraBridge:
             result = {
                 "saving": self._saving,
                 "save_fps": self.settings.fps,
+                "tracking_input_fps_limit": self.settings.tracking_fps,
+                "camera_received_fps": round(self._received_fps, 1),
+                "tracking_input_fps": round(self._tracking_fps, 1),
                 "duration_seconds": self.settings.duration,
                 "persist_images": self.settings.persist_images,
                 "preview_fps_limit": self.preview_fps,
                 "received_total": self.received_total,
+                "tracking_input_total": self.tracking_total,
                 "encoded_total": self.encoded_total,
+                "dropped_encodes": self.dropped_encodes,
+                "encode_queue_size": self._encode_pending.qsize(),
                 "last_image_age_seconds": round(time.monotonic() - self._last_image, 1)
                 if self._last_image else None,
                 "error": self.error,
@@ -284,6 +376,22 @@ class CameraBridge:
                 "disk_free_mb": shutil.disk_usage(self.store.directory).free // (1024 * 1024),
             })
         return result
+
+    def close(self):
+        with self._condition:
+            if self._encode_closed:
+                return
+            self._encode_closed = True
+        try:
+            self._encode_pending.put_nowait(None)
+        except queue.Full:
+            try:
+                self._encode_pending.get_nowait()
+                self._encode_pending.task_done()
+            except queue.Empty:
+                pass
+            self._encode_pending.put_nowait(None)
+        self._encode_thread.join(timeout=5)
 
     def latest(self):
         with self._condition:
@@ -553,6 +661,8 @@ def stop_camera(process):
 def main():
     parser = argparse.ArgumentParser(description="Hikvision camera capture and live preview")
     parser.add_argument("--fps", type=float, default=5.0, help="Saved photos per second")
+    parser.add_argument("--tracking-fps", type=float, default=30.0,
+                        help="Maximum camera frames per second delivered to an attached tracker")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="Saving duration in seconds; 0 means unlimited")
     parser.add_argument("--preview-fps", type=float, default=10.0)
@@ -563,7 +673,8 @@ def main():
     parser.add_argument("--no-launch", action="store_true",
                         help="Use an already running Hikvision ROS camera node")
     args = parser.parse_args()
-    settings = CaptureSettings(fps=args.fps, duration=args.duration)
+    settings = CaptureSettings(fps=args.fps, tracking_fps=args.tracking_fps,
+                               duration=args.duration)
     if not 0 < args.preview_fps <= 60:
         parser.error("--preview-fps must be between 0 and 60")
     if not 1 <= args.max_frames <= 10000:
@@ -603,6 +714,7 @@ def main():
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+        bridge.close()
         store.close()
 
 

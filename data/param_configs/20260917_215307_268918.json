@@ -1,0 +1,42 @@
+{
+  "capture": {
+    "fps": 5.0,
+    "tracking_fps": 30.0,
+    "duration": 0.0,
+    "persist_images": false
+  },
+  "camera": {
+    "exposure_us": 40000,
+    "gain": 4.0
+  },
+  "follow": {
+    "process_fps": 15.0,
+    "depth_fps": 5.0,
+    "camera_height_m": 0.5,
+    "follow_distance_m": 1.0,
+    "target_id": 0,
+    "distance_mode": "depth",
+    "detector_min_conf": 0.1,
+    "track_low_thresh": 0.1,
+    "track_high_thresh": 0.25,
+    "new_track_thresh": 0.25,
+    "proximity_thresh": 0.5,
+    "detection_iou": 0.7,
+    "segment_imgsz": 640,
+    "depth_imgsz": 768,
+    "kp_distance": 0.85,
+    "ki_distance": 0.08,
+    "kd_distance": 0.12,
+    "kp_bearing": 1.8,
+    "kd_bearing": 0.12,
+    "max_forward_mps": 0.8,
+    "max_reverse_mps": 0.25,
+    "max_yaw_radps": 1.2,
+    "max_linear_accel_mps2": 1.4,
+    "max_yaw_accel_radps2": 2.5,
+    "distance_deadband_m": 0.08,
+    "bearing_deadband_deg": 2.0,
+    "manual_linear_accel_mps2": 0.5,
+    "manual_yaw_accel_radps2": 1.5
+  }
+}

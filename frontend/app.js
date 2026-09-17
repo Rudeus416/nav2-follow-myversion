@@ -1,10 +1,14 @@
 const $ = (id) => document.getElementById(id);
-let previewUrl = null, previewBusy = false, initialized = false;
+let previewUrl = null, previewBusy = false, initialized = false, identitySupported = false;
 let followValues = {}, motionStatus = { motion_mode: 'auto', following: false, force_stopped: false };
 let manualTimer = null, manualDirection = 'stop';
 let persistImages = false;
 const advanced = {
-  detection_confidence: ['检测置信度', 0.01, 0.99, 0.01],
+  detector_min_conf: ['检测器最低置信度', 0.01, 0.99, 0.01],
+  track_low_thresh: ['跟踪低分阈值', 0.01, 0.99, 0.01],
+  track_high_thresh: ['跟踪高分阈值', 0.01, 0.99, 0.01],
+  new_track_thresh: ['新建轨迹阈值', 0.01, 0.99, 0.01],
+  proximity_thresh: ['ReID 最低 IoU 门槛', 0.01, 0.99, 0.01],
   detection_iou: ['检测 IOU', 0.01, 0.99, 0.01],
   segment_imgsz: ['检测输入尺寸', 320, 1280, 32],
   depth_imgsz: ['深度输入尺寸', 320, 1280, 32],
@@ -21,7 +25,7 @@ const advanced = {
   manual_linear_accel_mps2: ['手动线加速度 m/s²', 0.01, 5, 0.01],
   manual_yaw_accel_radps2: ['手动角加速度 rad/s²', 0.01, 10, 0.01],
 };
-const basic = ['camera_height_m', 'follow_distance_m', 'target_id', 'distance_mode', 'process_fps'];
+const basic = ['camera_height_m', 'follow_distance_m', 'target_id', 'distance_mode', 'process_fps', 'depth_fps'];
 for (const [name, [label, min, max, step]] of Object.entries(advanced)) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
@@ -47,6 +51,7 @@ function post(url, body) {
 }
 function setConfig(config) {
   $('fps').value = config.capture.fps;
+  $('tracking_fps').value = config.capture.tracking_fps;
   $('duration').value = config.capture.duration;
   persistImages = Boolean(config.capture.persist_images);
   updateStorageButton();
@@ -54,7 +59,12 @@ function setConfig(config) {
   $('gain').value = config.camera.gain;
   followValues = { ...config.follow };
   for (const name of [...basic, ...Object.keys(advanced)]) $(name).value = config.follow[name];
+  identitySupported = Object.prototype.hasOwnProperty.call(
+    config.follow, 'persistent_identity_enabled',
+  );
   initialized = true;
+  updatePersistentIdentityButton(Boolean(config.follow.persistent_identity_enabled));
+  $('persistentIdentityButton').disabled = !identitySupported;
 }
 function formConfig() {
   const follow = { ...followValues };
@@ -63,7 +73,13 @@ function formConfig() {
     if (!element.checkValidity()) throw new Error(`参数 ${name} 无效`);
     follow[name] = name === 'distance_mode' ? element.value : Number(element.value);
   }
-  return { capture: { fps: Number($('fps').value), duration: Number($('duration').value), persist_images: persistImages },
+  if (follow.track_low_thresh >= follow.track_high_thresh) {
+    throw new Error('跟踪低分阈值必须低于跟踪高分阈值');
+  }
+  if (follow.detector_min_conf > follow.track_low_thresh) {
+    throw new Error('要保留低分框，检测器最低置信度不能高于跟踪低分阈值');
+  }
+  return { capture: { fps: Number($('fps').value), tracking_fps: Number($('tracking_fps').value), duration: Number($('duration').value), persist_images: persistImages },
     camera: { exposure_us: Number($('exposure').value), gain: Number($('gain').value) }, follow };
 }
 function clearPreview(message) {
@@ -75,6 +91,14 @@ function clearPreview(message) {
 }
 function updateStorageButton() {
   $('storageButton').textContent = persistImages ? '存储方式：写入 data' : '存储方式：仅内存';
+}
+function updatePersistentIdentityButton(enabled) {
+  const button = $('persistentIdentityButton');
+  button.textContent = identitySupported
+    ? `持续身份认证：${enabled ? '开启' : '关闭'}`
+    : '持续身份认证：后端待重启';
+  button.setAttribute('aria-pressed', String(enabled));
+  button.classList.toggle('secondary', !enabled);
 }
 async function refreshPreview() {
   if (previewBusy) return;
@@ -102,6 +126,10 @@ async function refreshPreview() {
 }
 function showStatus(s) {
   motionStatus = s;
+  const identityEnabled = Boolean(s.follow_settings.persistent_identity_enabled);
+  if (initialized) followValues.persistent_identity_enabled = identityEnabled;
+  updatePersistentIdentityButton(identityEnabled);
+  $('persistentIdentityButton').disabled = !initialized || !identitySupported;
   const active = s.image_stream_active || s.processed_image_age_seconds !== null && s.processed_image_age_seconds < 5;
   $('connection').textContent = active ? '画面更新中' : '等待图像';
   $('connection').className = `badge ${active ? 'good' : 'bad'}`;
@@ -111,6 +139,8 @@ function showStatus(s) {
   $('saveStatus').textContent = !s.camera_process_running ? '等待摄像头' : !s.saving ? '已停止采集'
     : persistImages && s.write_error ? '写盘失败，内存继续' : persistImages ? '采集中并写盘' : '采集中（仅内存）';
   $('saveFps').textContent = `${s.save_fps} 张/秒`;
+  $('cameraReceivedFps').textContent = `${Number(s.camera_received_fps).toFixed(1)} FPS`;
+  $('trackingInputFps').textContent = `${Number(s.tracking_input_fps).toFixed(1)} / ${Number(s.tracking_input_fps_limit).toFixed(1)} FPS`;
   $('saveDuration').textContent = s.duration_seconds === 0 ? '不限时' : `${s.duration_seconds} 秒`;
   $('storageStatus').textContent = persistImages ? '内存 + data目录' : '仅进程内存';
   $('imageAge').textContent = s.last_image_age_seconds === null ? '尚未收到' : `${s.last_image_age_seconds} 秒前`;
@@ -127,6 +157,18 @@ function showStatus(s) {
   if (s.device_mode === 'external') $('deviceMessage').textContent = '摄像头由其他终端启动；设备启动和停止需在该终端操作。';
   $('modeStatus').textContent = s.force_stopped ? '强制停止' : s.motion_mode === 'manual' ? '手动运行' : s.following ? '自动跟随中' : '自动待机';
   $('targetStatus').textContent = s.target_visible ? `ID ${s.follow_settings.target_id} · ${s.target_distance_m === null ? '距离未知' : `${s.target_distance_m.toFixed(2)} m`}` : `ID ${s.follow_settings.target_id} · 丢失/未出现`;
+  const identityLabels = {
+    disabled: '已关闭', waiting_target: '等待目标出现', tracked: '身份稳定',
+    lost: '目标丢失', lost_no_gallery: '目标丢失 · 特征不足',
+    verifying: `候选确认中 ${s.identity_candidate_confirmations || 0}/3`,
+    ambiguous: '候选不明确 · 保持停车', expired: '重认超时 · 需要人工选择',
+    reacquired: '已确认并恢复原 ID',
+  };
+  $('identityState').textContent = identitySupported
+    ? identityLabels[s.identity_state] || s.identity_state || '—'
+    : '后端待重启';
+  $('identityGallery').textContent = `${s.identity_gallery_size || 0} 条`;
+  $('identityReacquisitions').textContent = s.identity_reacquisitions_total || 0;
   $('linearX').textContent = `${Number(s.linear_x_mps).toFixed(3)} m/s`;
   $('angularZ').textContent = `${Number(s.angular_z_radps).toFixed(3)} rad/s`;
   const battery = s.battery_percentage === null || s.battery_percentage === undefined
@@ -137,6 +179,23 @@ function showStatus(s) {
     ? `${battery.toFixed(1)}%${Number.isFinite(voltage) ? ` · ${voltage.toFixed(1)} V` : ''}`
     : '等待反馈';
   $('processedCount').textContent = s.processed_total;
+  $('fusedCount').textContent = s.fused_total;
+  $('fusedFrameId').textContent = s.latest_fused_frame_id === null ? '—' : s.latest_fused_frame_id;
+  $('trackerFps').textContent = `${Number(s.tracker_effective_fps).toFixed(1)} / ${Number(s.follow_settings.process_fps).toFixed(1)} FPS`;
+  $('trackerInterval').textContent = s.tracker_frame_interval_seconds === null ? '—' : `${Number(s.tracker_frame_interval_seconds).toFixed(3)} 秒`;
+  $('trackerLatency').textContent = s.tracker_latency_seconds === null ? '—' : `${Number(s.tracker_latency_seconds).toFixed(3)} 秒`;
+  $('bearingLatency').textContent = s.bearing_control_latency_seconds === null ? '—' : `${Number(s.bearing_control_latency_seconds).toFixed(3)} 秒`;
+  $('kalmanTimeScale').textContent = s.kalman_time_scale === null ? '—' : `${Number(s.kalman_time_scale).toFixed(2)}×`;
+  $('cameraSkipped').textContent = `${s.latest_skipped_camera_frames}（累计 ${s.skipped_camera_frames_total}）`;
+  $('depthFps').textContent = `${Number(s.depth_effective_fps).toFixed(1)} / ${Number(s.follow_settings.depth_fps).toFixed(1)} FPS`;
+  $('depthAge').textContent = s.depth_age_seconds === null ? '等待深度' : `${Number(s.depth_age_seconds).toFixed(3)} 秒`;
+  $('depthDropped').textContent = s.depth_dropped_total;
+  $('pipelineBuffers').textContent = `${s.camera_buffer_size}/${s.depth_queue_size}/${s.model_buffer_size}/${s.depth_buffer_size}/${s.tracking_buffer_size}/${s.fusion_buffer_size}`;
+  $('joinPending').textContent = `${s.join_pending_tracking}/${s.join_pending_depth}`;
+  $('joinDropped').textContent = `${s.join_expired_total}/${s.join_dropped_total}`;
+  $('staleControlRejected').textContent = s.stale_control_rejected_total;
+  $('configVersion').textContent = s.config_version;
+  $('jpegQueue').textContent = `${s.encode_queue_size}/${s.dropped_encodes}`;
   $('drawnCount').textContent = s.drawn_total;
   $('skippedCount').textContent = s.skipped_processing_frames;
   $('skippedDrawCount').textContent = s.skipped_drawing_frames;
@@ -187,6 +246,7 @@ async function loadSelectedConfig() {
 }
 async function applyFollow() {
   followValues = await post('/api/follow/settings', formConfig().follow);
+  updatePersistentIdentityButton(Boolean(followValues.persistent_identity_enabled));
   await refreshStatus();
 }
 async function cameraControl(url, success, body) {
@@ -204,7 +264,7 @@ $('cameraForm').addEventListener('submit', (event) => {
 });
 $('captureForm').addEventListener('submit', async (event) => {
   event.preventDefault();
-  try { await post('/api/capture/start', { fps: Number($('fps').value), duration: Number($('duration').value), persist_images: persistImages }); $('actionMessage').textContent = '已按新频率开始采集。'; refreshStatus(); }
+  try { await post('/api/capture/start', { fps: Number($('fps').value), tracking_fps: Number($('tracking_fps').value), duration: Number($('duration').value), persist_images: persistImages }); $('actionMessage').textContent = '已按新频率开始采集。'; refreshStatus(); }
   catch (error) { $('actionMessage').textContent = error.message; }
 });
 $('stopButton').addEventListener('click', async () => {
@@ -224,6 +284,20 @@ $('followForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   try { await applyFollow(); $('motionMessage').textContent = '已应用跟随参数。'; }
   catch (error) { $('motionMessage').textContent = error.message; }
+});
+$('persistentIdentityButton').addEventListener('click', async () => {
+  if (!initialized || !identitySupported) return;
+  const previous = Boolean(followValues.persistent_identity_enabled);
+  followValues.persistent_identity_enabled = !previous;
+  updatePersistentIdentityButton(!previous);
+  try {
+    await applyFollow();
+    $('motionMessage').textContent = `持续身份认证已${!previous ? '开启' : '关闭'}；控制已清零并等待新配置结果。`;
+  } catch (error) {
+    followValues.persistent_identity_enabled = previous;
+    updatePersistentIdentityButton(previous);
+    $('motionMessage').textContent = error.message;
+  }
 });
 $('target_id').addEventListener('change', async () => {
   if (!initialized) return;
