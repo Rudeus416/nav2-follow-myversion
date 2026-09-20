@@ -1,0 +1,86 @@
+{
+  "schema_version": 2,
+  "name": "20260920_160622_946624.json",
+  "created_at_utc": "2026-09-20T08:06:22.947909+00:00",
+  "updated_at_utc": "2026-09-20T08:32:02.144308+00:00",
+  "source_session": "20260920_161749_439201",
+  "source_pair_id": "000001",
+  "camera_calibration_file": "/home/metaiot/Workspace/visual_car/camera_calibration.yaml",
+  "camera_intrinsics": {
+    "width": 3072,
+    "height": 2048,
+    "fx": 1859.588329,
+    "fy": 1869.678526,
+    "cx": 1493.542388,
+    "cy": 1151.062343,
+    "distortion": [
+      -0.048256,
+      0.073359,
+      0.017038,
+      -0.008814,
+      0.0
+    ],
+    "distortion_model": "plumb_bob"
+  },
+  "parameter_frame": "radar_ros",
+  "rotation_order": "Rz(yaw_deg) @ Ry(pitch_deg) @ Rx(roll_deg)",
+  "convention": "P_camera_optical = radar_to_optical_axes @ (Rz(yaw_deg) @ Ry(pitch_deg) @ Rx(roll_deg) @ P_radar_ros + [tx_m,ty_m,tz_m]_radar_ros)",
+  "adjustment_euler_deg": {
+    "yaw": -2.7999999999999607,
+    "pitch": 1.7333333333333605,
+    "roll": 0.0
+  },
+  "translation_m": {
+    "x": -0.02,
+    "y": 0.02,
+    "z": 0.1
+  },
+  "translation_camera_optical_m": {
+    "x": -0.02,
+    "y": -0.1,
+    "z": -0.02
+  },
+  "radar_to_optical_axes": [
+    [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      -1.0
+    ],
+    [
+      1.0,
+      0.0,
+      0.0
+    ]
+  ],
+  "radar_to_camera_optical_4x4": [
+    [
+      0.0488274176964162,
+      -0.9988061373414341,
+      0.0014775960828470526,
+      -0.02
+    ],
+    [
+      0.030247759386161168,
+      0.0,
+      -0.9995424318417487,
+      -0.1
+    ],
+    [
+      0.9983491154567207,
+      0.04884976979561258,
+      0.030211647715724745,
+      -0.02
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ]
+}

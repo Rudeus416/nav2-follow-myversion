@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>毫米波雷达 · 相机外参标定</title>
+  <link rel="stylesheet" href="/static/style.css?v=radar-axes-1">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">VISUAL CAR / SENSOR CALIBRATION</div>
+      <h1>毫米波雷达 · 相机外参标定</h1>
+    </div>
+    <div id="status" class="status">正在读取采集数据…</div>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar">
+      <section class="panel">
+        <div class="section-number">01 / 数据选择</div>
+        <label for="sessionSelect">采集批次</label>
+        <div class="load-row">
+          <select id="sessionSelect"></select>
+          <button id="refreshSessions" type="button" title="重新读取采集批次">刷新批次</button>
+        </div>
+        <label for="pairSelect">图像—雷达配对</label>
+        <div class="pair-row">
+          <button id="previousPair" class="small-button" title="上一对">←</button>
+          <select id="pairSelect"></select>
+          <button id="nextPair" class="small-button" title="下一对">→</button>
+        </div>
+        <div id="pairInfo" class="meta">请选择一组配对。</div>
+      </section>
+
+      <section class="panel">
+        <div class="section-number">02 / 调节模式</div>
+        <div class="mode-switch" role="group" aria-label="调节模式">
+          <button id="rotateMode" class="active" aria-pressed="true">旋转调节</button>
+          <button id="translateMode" aria-pressed="false">平移调节</button>
+        </div>
+        <p id="gestureHelp" class="hint">在图像上按住左键拖动：左右调绕雷达 Z 轴偏航，上下调绕 Y 轴俯仰。按 Shift 左右拖动可调绕 X 轴横滚。</p>
+        <p class="hint">下方数值可直接输入，适合精调六个自由度。切换配对会保留当前参数。</p>
+      </section>
+
+      <section class="panel">
+        <div class="section-number">03 / 参数文件</div>
+        <label for="transformSelect">已存外参</label>
+        <div class="load-row">
+          <select id="transformSelect"></select>
+          <button id="loadTransform">加载</button>
+        </div>
+        <div id="activeFile" class="meta">当前为未保存参数</div>
+        <button id="saveTransform" class="primary-button">保存参数</button>
+        <button id="saveAsNew" class="secondary-button">另存为新文件</button>
+        <p class="hint">加载文件后，“保存参数”会更新同一文件，文件名保持不变。</p>
+      </section>
+
+      <section class="panel">
+        <div class="section-number">04 / 六自由度外参</div>
+        <p class="hint first-hint">以下六项均按三维点云的雷达坐标系调节：X 向前、Y 向左、Z 向上；旋转采用右手定则。零值时仍执行雷达 → 相机光学坐标轴换轴。</p>
+        <div class="field-grid">
+          <label>偏航 · 绕 Z <span>°</span><input id="yaw" type="number" step="0.1" value="0"></label>
+          <label>俯仰 · 绕 Y <span>°</span><input id="pitch" type="number" step="0.1" value="0"></label>
+          <label>横滚 · 绕 X <span>°</span><input id="roll" type="number" step="0.1" value="0"></label>
+          <label>前后平移 X <span>m</span><input id="tx" type="number" step="0.005" value="0"></label>
+          <label>左右平移 Y <span>m</span><input id="ty" type="number" step="0.005" value="0"></label>
+          <label>上下平移 Z <span>m</span><input id="tz" type="number" step="0.005" value="0"></label>
+        </div>
+        <button id="resetParams" class="secondary-button">参数归零</button>
+      </section>
+
+      <section class="panel matrix-panel">
+        <div class="section-number">当前雷达 → 相机光学坐标变换</div>
+        <pre id="matrixDisplay"></pre>
+        <p class="hint">04 按雷达 X/Y/Z 输入；此处矩阵输出相机光学坐标。P<sub>camera</sub> = A · (R<sub>radar</sub> · P<sub>radar</sub> + t<sub>radar</sub>)，其中 A 将雷达轴换为相机光学轴。保存文件包含完整 4×4 矩阵。</p>
+      </section>
+    </aside>
+
+    <div class="viewers">
+      <section class="viewer-panel">
+      <div class="viewer-heading">
+        <div>
+          <div class="section-number">实时投影</div>
+          <h2>图像与雷达检测点</h2>
+        </div>
+        <div id="visibleCount" class="count-pill">等待数据</div>
+      </div>
+      <div id="canvasStage" class="canvas-stage">
+        <canvas id="projectionCanvas" aria-label="相机图像与雷达点云投影"></canvas>
+      </div>
+      <div class="legend">
+        <span>近 · 0 m</span>
+        <div id="colorbar" class="colorbar"></div>
+        <span id="legendMax">远</span>
+        <span class="legend-caption">距离 / Matplotlib magma</span>
+      </div>
+      <p class="viewer-note">仅显示位于相机前方并落在图像内的雷达点。雷达点通常较稀疏，画面中未出现点也可能是当前帧没有检测结果。</p>
+      </section>
+
+      <section class="viewer-panel radar-viewer">
+      <div class="viewer-heading">
+        <div>
+          <div class="section-number">原始雷达坐标</div>
+          <h2>三维雷达点云</h2>
+        </div>
+        <div id="radarPointCount" class="count-pill">等待数据</div>
+      </div>
+      <div id="radarStage" class="radar-stage">
+        <canvas id="radarCanvas" aria-label="当前配对的三维雷达点云，拖动可旋转观察视角"></canvas>
+      </div>
+      <div class="legend">
+        <span>近 · 0 m</span>
+        <div id="radarColorbar" class="colorbar"></div>
+        <span id="radarLegendMax">远</span>
+        <span class="legend-caption">距离 / Matplotlib magma</span>
+      </div>
+      <p class="viewer-note">拖动旋转观察视角，滚轮缩放，双击恢复默认视角。坐标轴单位为米：X 向前、Y 向左、Z 向上。此处显示所选配对的原始雷达坐标，操作不会修改外参。</p>
+      <p id="radarDimensionNote" class="viewer-note radar-dimension-note"></p>
+      </section>
+
+      <section class="viewer-panel capture-panel">
+        <div class="viewer-heading">
+          <div>
+            <div class="section-number">数据采集</div>
+            <h2>启动相机与毫米波雷达采集</h2>
+          </div>
+          <div id="captureState" class="count-pill">未启动</div>
+        </div>
+        <form id="captureForm">
+          <div class="capture-grid">
+            <label>采集批次名称
+              <input name="name" type="text" placeholder="留空则使用启动时间">
+            </label>
+            <label>采集时长 · 秒
+              <input name="duration" type="number" min="0.001" step="any" required>
+            </label>
+            <label>相机存储上限 · FPS
+              <input name="camera_fps" type="number" min="0.001" step="any" required>
+            </label>
+            <label>配对时间阈值 · ms
+              <input name="pair_threshold_ms" type="number" min="0" step="any" required>
+            </label>
+            <label>雷达最大距离 · m
+              <input name="max_range_m" data-radar-owned type="number" min="0.001" step="any" required>
+            </label>
+            <label>雷达帧周期 · ms
+              <input name="radar_frame_period_ms" data-radar-owned type="number" min="0.001" step="any" required>
+            </label>
+          </div>
+
+          <details class="capture-details">
+            <summary>雷达检测参数</summary>
+            <div class="capture-grid">
+              <label class="capture-wide">雷达天线配置
+                <select name="radar_profile" data-radar-owned required>
+                  <option value="/home/metaiot/Workspace/visual_car/radar_profiles/1tx4rx_capture.cfg">1TX · 单发射天线</option>
+                  <option value="/home/metaiot/Workspace/dataCollectToolkit/config/radar/xWR1843_profile_1280.cfg">2TX · 方位角（当前默认）</option>
+                  <option value="/home/metaiot/Workspace/dataCollectToolkit/config/radar/xWR1843_profile_3tx4rx_20hz.cfg">3TX · 方位角与俯仰角</option>
+                </select>
+              </label>
+              <label>雷达最小距离 · m
+                <input name="min_range_m" data-radar-owned type="number" min="0" step="any" required>
+              </label>
+              <label>距离维 CFAR 门限 · dB
+                <input name="cfar_range_db" data-radar-owned type="number" min="0.001" max="30" step="any" required>
+              </label>
+              <label>速度维 CFAR 门限 · dB
+                <input name="cfar_doppler_db" data-radar-owned type="number" min="0.001" max="30" step="any" required>
+              </label>
+              <label>CFAR 峰值合并
+                <select name="cfar_peak_grouping" data-radar-owned>
+                  <option value="both">距离和速度</option>
+                  <option value="range">仅距离</option>
+                  <option value="doppler">仅速度</option>
+                  <option value="none">不合并</option>
+                </select>
+              </label>
+            </div>
+          </details>
+
+          <details class="capture-details">
+            <summary>传感器连接与写盘参数</summary>
+            <div class="capture-toggles">
+              <label><input name="external_camera" type="checkbox"> 相机已由其他进程启动，仅订阅</label>
+              <label><input name="external_radar" type="checkbox"> 雷达已由其他进程启动，仅订阅</label>
+            </div>
+            <p class="hint">使用外部雷达时，页面中的雷达距离、CFAR、帧周期、配置文件和串口设置不会下发到雷达。</p>
+            <div class="capture-grid">
+              <label>相机 ROS 话题
+                <input name="camera_topic" type="text" required>
+              </label>
+              <label>雷达 ROS 话题
+                <input name="radar_topic" type="text" required>
+              </label>
+              <label>雷达命令串口
+                <input name="cli_port" data-radar-owned type="text" required>
+              </label>
+              <label>雷达数据串口
+                <input name="data_port" data-radar-owned type="text" required>
+              </label>
+              <label>启动等待上限 · 秒
+                <input name="startup_timeout" type="number" min="0.001" step="any" required>
+              </label>
+              <label>JPEG 图像质量 · 1–100
+                <input name="jpeg_quality" type="number" min="1" max="100" step="1" required>
+              </label>
+              <label>写盘队列容量基数
+                <input name="queue_size" type="number" min="1" step="1" required>
+              </label>
+            </div>
+          </details>
+
+          <div class="capture-actions">
+            <button id="startCapture" class="primary-button" type="submit">开始采集</button>
+            <button id="stopCapture" class="secondary-button" type="button" disabled>停止采集</button>
+          </div>
+        </form>
+        <p id="captureMessage" class="capture-message">正在读取采集配置…</p>
+        <pre id="captureLog" class="capture-log" aria-live="polite"></pre>
+      </section>
+    </div>
+  </main>
+
+  <script src="/static/app.js?v=radar-axes-1"></script>
+</body>
+</html>

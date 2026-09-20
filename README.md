@@ -1,5 +1,7 @@
 # visual_car：照片流行人跟随
 
+相机与毫米波雷达的同步采集、人工外参标定说明见 [CALIBRATION.md](CALIBRATION.md)。
+
 `control.py` 是运行入口。它沿用 `test.py` 的 YOLO26 实例分割、BoT-SORT + ReID、YOLO26 米制深度图、人物测距和距离 PID / 水平角度 PD 流程，但独立实现，没有导入或调用 `test.py`。海康相机订阅和网页采集由 `camera_server.py` 提供。运行时采用六条逻辑流水线：相机把带单调递增帧号的 BGR 放入多帧 `C` 缓冲；Detection 与 BoT-SORT 因 Ultralytics 封装而暂时共用一个 Tracking Worker；该 Worker 在调用 `model.track()` **之前**先发布同帧 DepthRequest，使 Depth 与 Detection/Tracking 并行；两种结果通过帧号和配置版本做非阻塞精确 Join；Tracking 每次更新转向，同帧深度完成后更新距离与线速度；最后由独立显示线程绘制缩略图和 JPEG。相机原图 JPEG 与结果图都使用单槽最新帧邮箱，慢速显示或编码只替换旧任务，不阻塞控制和 ROS 图像回调。
 
 ## 启动

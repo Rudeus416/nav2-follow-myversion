@@ -2,3 +2,11 @@
 /data/*
 !/data/param_configs/
 !/data/param_configs/**
+!/data/data_transfer/
+!/data/data_transfer/**
+# !/data/data_calib/
+# /data/data_calib/*
+# !/data/data_calib/.gitkeep
+# !/data/data_transfer/
+# /data/data_transfer/*
+# !/data/data_transfer/.gitkeep
