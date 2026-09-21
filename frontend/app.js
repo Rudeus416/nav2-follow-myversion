@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 let previewUrl = null, previewBusy = false, initialized = false, identitySupported = false;
-let followValues = {}, motionStatus = { motion_mode: 'auto', following: false, force_stopped: false };
+let followValues = {}, radarValues = {}, motionStatus = { motion_mode: 'auto', following: false, force_stopped: false };
 let manualTimer = null, manualDirection = 'stop';
 let persistImages = false;
 const advanced = {
@@ -26,6 +26,9 @@ const advanced = {
   manual_yaw_accel_radps2: ['手动角加速度 rad/s²', 0.01, 10, 0.01],
 };
 const basic = ['camera_height_m', 'follow_distance_m', 'target_id', 'distance_mode', 'process_fps', 'depth_fps'];
+const radarNumbers = ['max_range_m', 'min_range_m', 'frame_period_ms', 'cfar_range_db',
+  'cfar_doppler_db', 'yaw_deg', 'pitch_deg', 'roll_deg', 'tx_m', 'ty_m', 'tz_m'];
+const radarStrings = ['radar_topic', 'cli_port', 'data_port', 'cfar_peak_grouping'];
 for (const [name, [label, min, max, step]] of Object.entries(advanced)) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
@@ -58,6 +61,14 @@ function setConfig(config) {
   $('exposure').value = config.camera.exposure_us;
   $('gain').value = config.camera.gain;
   followValues = { ...config.follow };
+  radarValues = { ...(config.radar || {}) };
+  for (const name of [...radarNumbers, ...radarStrings]) {
+    if (Object.prototype.hasOwnProperty.call(radarValues, name)) $(name).value = radarValues[name];
+  }
+  $('radar_enabled').checked = Boolean(radarValues.enabled);
+  $('external_radar').checked = Boolean(radarValues.external_radar);
+  $('allow_extrinsic_adjustment').checked = Boolean(radarValues.allow_extrinsic_adjustment);
+  syncRadarControls();
   for (const name of [...basic, ...Object.keys(advanced)]) $(name).value = config.follow[name];
   identitySupported = Object.prototype.hasOwnProperty.call(
     config.follow, 'persistent_identity_enabled',
@@ -79,8 +90,42 @@ function formConfig() {
   if (follow.detector_min_conf > follow.track_low_thresh) {
     throw new Error('要保留低分框，检测器最低置信度不能高于跟踪低分阈值');
   }
+  const radar = { ...radarValues, enabled: $('radar_enabled').checked,
+    external_radar: $('external_radar').checked,
+    allow_extrinsic_adjustment: $('allow_extrinsic_adjustment').checked,
+    transform_file: radarValues.transform_file || null };
+  for (const name of radarNumbers) {
+    if (!$(name).checkValidity() || !Number.isFinite(Number($(name).value))) {
+      throw new Error(`雷达参数 ${name} 无效`);
+    }
+    radar[name] = Number($(name).value);
+  }
+  for (const name of radarStrings) radar[name] = $(name).value.trim();
+  if (radar.min_range_m >= radar.max_range_m) throw new Error('雷达最小距离必须小于最大距离');
   return { capture: { fps: Number($('fps').value), tracking_fps: Number($('tracking_fps').value), duration: Number($('duration').value), persist_images: persistImages },
-    camera: { exposure_us: Number($('exposure').value), gain: Number($('gain').value) }, follow };
+    camera: { exposure_us: Number($('exposure').value), gain: Number($('gain').value) }, follow, radar };
+}
+function syncRadarControls() {
+  const locked = !motionStatus.force_stopped || motionStatus.radar_reconfiguring;
+  $('radar_enabled').disabled = locked;
+  $('external_radar').disabled = locked;
+  $('allow_extrinsic_adjustment').disabled = locked;
+  $('transformSelect').disabled = locked;
+  $('loadTransform').disabled = locked;
+  $('applyRadar').disabled = locked;
+  for (const field of document.querySelectorAll('[data-radar-hardware]')) {
+    field.disabled = locked || $('external_radar').checked;
+  }
+  for (const field of document.querySelectorAll('[data-radar-extrinsic]')) {
+    field.disabled = locked || !$('allow_extrinsic_adjustment').checked;
+  }
+  $('radar_topic').disabled = locked;
+}
+async function refreshTransforms() {
+  const files = await request('/api/radar/transforms');
+  $('transformSelect').replaceChildren(new Option('选择外参文件…', ''));
+  for (const file of files) $('transformSelect').add(new Option(file, file));
+  $('transformSelect').value = radarValues.transform_file || '';
 }
 function clearPreview(message) {
   $('noImage').textContent = message;
@@ -126,6 +171,7 @@ async function refreshPreview() {
 }
 function showStatus(s) {
   motionStatus = s;
+  syncRadarControls();
   const identityEnabled = Boolean(s.follow_settings.persistent_identity_enabled);
   if (initialized) followValues.persistent_identity_enabled = identityEnabled;
   updatePersistentIdentityButton(identityEnabled);
@@ -150,7 +196,22 @@ function showStatus(s) {
   $('retained').textContent = s.retained_frames;
   $('dropped').textContent = s.dropped_saves;
   $('diskFree').textContent = `${s.disk_free_mb} MB`;
-  $('error').textContent = s.error || s.write_error || s.processing_error || '';
+  $('error').textContent = s.error || s.write_error || s.processing_error || s.radar_error || '';
+  $('radarStatus').textContent = s.radar_reconfiguring ? '正在应用设置'
+    : !s.radar_settings.enabled ? '未启用'
+    : s.radar_driver_running ? '本服务运行中' : s.radar_settings.external_radar ? '订阅外部雷达' : '等待驱动';
+  $('radarPoints').textContent = `${s.radar_projected_points} 个投影点 · 缓冲 ${s.radar_buffer_size} 帧`
+    + (s.radar_age_seconds === null ? '' : ` · 最近 ${Number(s.radar_age_seconds).toFixed(1)} 秒`);
+  $('radarDelta').textContent = s.radar_pair_delta_ms === null ? '无点云帧'
+    : `${Number(s.radar_pair_delta_ms).toFixed(1)} ms（雷达 − 图像）`;
+  const distanceNames = { radar: '毫米波', 'visual-scaled': '单目 × 已校正系数',
+    'visual-uncalibrated': '单目 × 初始系数 1', 'mask-depth': '单目深度图',
+    'foot-ray': '脚底射线', fused: '单目融合', unavailable: '无可用距离' };
+  $('distanceSource').textContent = distanceNames[s.target_distance_method] || s.target_distance_method || '—';
+  $('visualScale').textContent = `${Number(s.visual_scale).toFixed(3)} × · ${s.visual_scale_samples} 次雷达校正`;
+  $('radarMatrix').textContent = (s.radar_to_camera_optical_4x4 || []).map((row) =>
+    '[ ' + row.map((value) => `${value >= 0 ? ' ' : ''}${Number(value).toFixed(4)}`).join(' ') + ' ]'
+  ).join('\n');
   $('startDevice').disabled = !s.device_control_available || s.device_mode === 'managed';
   $('stopDevice').disabled = !s.device_control_available || s.device_mode !== 'managed';
   $('cameraForm').querySelector('button').disabled = !s.camera_process_running;
@@ -205,6 +266,7 @@ function showStatus(s) {
   $('followButton').disabled = s.motion_mode !== 'auto' || s.force_stopped;
   $('modeButton').textContent = s.motion_mode === 'auto' ? '切换为手动运行' : '切换为自动跟随';
   $('releaseStop').hidden = !s.force_stopped;
+  $('releaseStop').disabled = Boolean(s.radar_reconfiguring);
   for (const button of $('manualPad').querySelectorAll('button')) button.disabled = s.motion_mode !== 'manual' || s.force_stopped;
 }
 async function refreshStatus() {
@@ -240,6 +302,7 @@ async function loadSelectedConfig() {
   try {
     const result = await post(`/api/config/load/${encodeURIComponent(name)}`);
     setConfig(result.config);
+    await refreshTransforms();
     await refreshStatus();
     $('configMessage').textContent = `已应用 ${name}`;
   } catch (error) { $('configMessage').textContent = error.message; }
@@ -261,6 +324,31 @@ $('stopDevice').addEventListener('click', async () => {
 $('cameraForm').addEventListener('submit', (event) => {
   event.preventDefault();
   cameraControl('/api/camera/settings', '已应用曝光与增益。', { exposure_us: Number($('exposure').value), gain: Number($('gain').value) });
+});
+$('external_radar').addEventListener('change', syncRadarControls);
+$('allow_extrinsic_adjustment').addEventListener('change', syncRadarControls);
+$('loadTransform').addEventListener('click', async () => {
+  const name = $('transformSelect').value;
+  if (!name) { $('radarMessage').textContent = '请先选择外参文件。'; return; }
+  try {
+    const values = await request(`/api/radar/transforms/${encodeURIComponent(name)}`);
+    radarValues.transform_file = name;
+    for (const key of ['yaw_deg', 'pitch_deg', 'roll_deg', 'tx_m', 'ty_m', 'tz_m']) {
+      $(key).value = values[key];
+    }
+    $('radarMessage').textContent = `已读取 ${name}；点击“应用雷达设置”后生效。`;
+  } catch (error) { $('radarMessage').textContent = error.message; }
+});
+$('radarForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    radarValues = await post('/api/radar/settings', formConfig().radar);
+    syncRadarControls();
+    $('radarMessage').textContent = radarValues.enabled
+      ? '雷达设置已应用；确认点云后解除强制停止，再重新点击“开始跟随”。'
+      : '雷达已关闭；解除强制停止后需重新点击“开始跟随”。';
+    await refreshStatus();
+  } catch (error) { $('radarMessage').textContent = error.message; }
 });
 $('captureForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -360,7 +448,7 @@ $('refreshFrames').addEventListener('click', refreshFrames);
 $('refreshProcessed').addEventListener('click', refreshFrames);
 window.addEventListener('beforeunload', () => { stopManual(); if (previewUrl) URL.revokeObjectURL(previewUrl); });
 (async () => {
-  try { setConfig(await request('/api/config/current')); await refreshConfigFiles(); }
+  try { setConfig(await request('/api/config/current')); await Promise.all([refreshConfigFiles(), refreshTransforms()]); }
   catch (error) { $('configMessage').textContent = `配置初始化失败：${error.message}`; }
   refreshStatus(); refreshPreview(); refreshFrames();
   setInterval(refreshStatus, 1000);

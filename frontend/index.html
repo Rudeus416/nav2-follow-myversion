@@ -13,7 +13,7 @@
       <div>
         <p class="eyebrow">VISUAL CAR</p>
         <h1>行人检测与跟随控制</h1>
-        <p class="subtitle">海康照片流、深度测距、目标跟踪和 ROS 速度输出</p>
+        <p class="subtitle">海康图像、可选毫米波测距、目标跟踪和 ROS 速度输出</p>
       </div>
       <span id="connection" class="badge">正在连接</span>
     </header>
@@ -38,10 +38,62 @@
       <p class="hint">室内逆光可先试 40000 微秒、增益 4；窗外会更容易过曝。调亮度不会改变照片保存频率。</p>
     </section>
 
+    <section class="card panel radar-panel">
+      <div class="section-heading">
+        <div><h2>毫米波雷达</h2><p class="hint">启用后订阅点云并用于目标测距；关闭时继续使用原有单目测距。</p></div>
+        <span id="radarStatus" class="badge">未启用</span>
+      </div>
+      <form id="radarForm">
+        <div class="radar-checks">
+          <label class="check"><input id="radar_enabled" type="checkbox"> 使用并启动毫米波雷达</label>
+          <label class="check"><input id="external_radar" type="checkbox"> 雷达已由其他进程启动，仅订阅</label>
+        </div>
+        <p class="hint">修改雷达设置前必须先按“强制停止”；应用后再解除。天线固定为 3TX（方位角与俯仰角）。跟随连续采集，每张图像取时间戳最近的已收到点云。</p>
+        <div class="radar-grid">
+          <label>雷达最大距离（m）<input id="max_range_m" data-radar-hardware type="number" min="0.01" max="30" step="any" required></label>
+          <label>雷达帧周期（ms）<input id="frame_period_ms" data-radar-hardware type="number" min="50" max="1000" step="any" required></label>
+          <label>雷达最小距离（m）<input id="min_range_m" data-radar-hardware type="number" min="0" max="29.99" step="any" required></label>
+          <label>距离维 CFAR 门限（dB）<input id="cfar_range_db" data-radar-hardware type="number" min="0.01" max="30" step="any" required></label>
+          <label>速度维 CFAR 门限（dB）<input id="cfar_doppler_db" data-radar-hardware type="number" min="0.01" max="30" step="any" required></label>
+          <label>CFAR 峰值合并<select id="cfar_peak_grouping" data-radar-hardware><option value="none">不合并</option><option value="both">距离和速度</option><option value="range">仅距离</option><option value="doppler">仅速度</option></select></label>
+        </div>
+        <details class="advanced"><summary>雷达连接和安装外参</summary>
+          <div class="radar-grid">
+            <label>雷达 ROS 话题<input id="radar_topic" type="text" required></label>
+            <label>命令串口<input id="cli_port" data-radar-hardware type="text" required></label>
+            <label>数据串口<input id="data_port" data-radar-hardware type="text" required></label>
+          </div>
+          <div class="transform-loader">
+            <label>校准工程保存的外参文件<select id="transformSelect"><option value="">选择外参文件…</option></select></label>
+            <button id="loadTransform" type="button" class="secondary">读取文件数值</button>
+          </div>
+          <label class="check"><input id="allow_extrinsic_adjustment" type="checkbox"> 允许手动调整以下六个外参</label>
+          <p class="hint">外参按雷达坐标系输入：X 向前、Y 向左、Z 向上。读取已保存的外参文件无需开启手动调整；直接改变数值时必须先勾选。</p>
+          <div class="radar-grid">
+            <label>偏航，绕 Z（°）<input id="yaw_deg" data-radar-extrinsic type="number" min="-180" max="180" step="any" required></label>
+            <label>俯仰，绕 Y（°）<input id="pitch_deg" data-radar-extrinsic type="number" min="-180" max="180" step="any" required></label>
+            <label>横滚，绕 X（°）<input id="roll_deg" data-radar-extrinsic type="number" min="-180" max="180" step="any" required></label>
+            <label>前后平移 X（m）<input id="tx_m" data-radar-extrinsic type="number" min="-5" max="5" step="any" required></label>
+            <label>左右平移 Y（m）<input id="ty_m" data-radar-extrinsic type="number" min="-5" max="5" step="any" required></label>
+            <label>上下平移 Z（m）<input id="tz_m" data-radar-extrinsic type="number" min="-5" max="5" step="any" required></label>
+          </div>
+          <p class="hint">当前已应用的雷达 → 相机光学坐标变换矩阵：</p>
+          <pre id="radarMatrix" class="radar-matrix">等待状态…</pre>
+        </details>
+        <div class="actions"><button id="applyRadar" type="submit">应用雷达设置</button><span id="radarMessage" class="message" role="status"></span></div>
+      </form>
+      <dl class="stats radar-stats">
+        <div><dt>雷达点云</dt><dd id="radarPoints">—</dd></div>
+        <div><dt>雷达与图像时间差</dt><dd id="radarDelta">—</dd></div>
+        <div><dt>目标距离来源</dt><dd id="distanceSource">—</dd></div>
+        <div><dt>单目距离系数</dt><dd id="visualScale">—</dd></div>
+      </dl>
+    </section>
+
     <section class="preview card" aria-label="实时检测结果">
-      <img id="live" alt="实时检测和深度结果">
+      <img id="live" alt="图像检测框、雷达点云投影和深度结果">
       <div id="noImage" class="no-image">正在等待检测结果…</div>
-      <div class="preview-caption">左侧 Tracking 与右侧深度图来自同一帧号；只有精确配对完成后才绘制。默认仅保存在内存缓冲；开启落盘后才写入 data 目录。</div>
+      <div class="preview-caption">左侧为图像、人物检测框与雷达点云投影，右侧为同帧深度图。点云按最近时间戳选取；默认仅保存在内存，开启落盘后写入 data 目录。</div>
     </section>
 
     <section class="card panel motion-panel">

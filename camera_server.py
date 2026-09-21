@@ -29,6 +29,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
+from calibration_common import ros_stamp_ns
 
 
 ROOT = Path(__file__).resolve().parent
@@ -310,7 +311,8 @@ class CameraBridge:
             if tracking_due and self.on_frame is not None:
                 # The camera sequence identifies gaps independently of the
                 # wall-clock timestamp. The converted BGR array owns its data.
-                self.on_frame(bgr, now, frame_sequence)
+                stamp_ns, _ = ros_stamp_ns(image.header.stamp, time.time_ns())
+                self.on_frame(bgr, now, frame_sequence, stamp_ns)
             # Tracking-only frames stay as BGR. Preview/archive JPEG work is
             # handed to a latest-frame worker and never blocks this callback.
             if preview_due or save_due:

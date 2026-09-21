@@ -42,6 +42,9 @@ from ultralytics.utils import YAML
 
 from camera_server import (ROOT, CameraBridge, CameraController, CameraSettings,
                            CaptureSettings, FrameStore, make_app)
+from radar_follow import (RadarManager, RadarSettings, ScaleKalman, load_transform,
+                          person_radar_range, project_points, transform_names)
+from calibration_common import transform_matrix
 
 
 CALIBRATION_FILE = ROOT / "camera_calibration.yaml"
@@ -115,6 +118,7 @@ class Configuration(BaseModel):
     capture: CaptureSettings
     camera: CameraSettings
     follow: FollowSettings
+    radar: RadarSettings = Field(default_factory=RadarSettings)
 
 
 class ManualInput(BaseModel):
@@ -254,6 +258,7 @@ class DrawJob:
     yaw: float
     following: bool
     source_at: float
+    radar_projection: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -264,6 +269,7 @@ class FrameRecord:
     frame_id: int
     source_at: float
     image: np.ndarray
+    stamp_ns: int
 
 
 @dataclass(frozen=True)
@@ -1045,7 +1051,8 @@ def preview_mask(mask: np.ndarray, image_size: tuple[int, int],
 
 
 def annotate(result, depth: np.ndarray | None, people: list[Person], target_id: int,
-             linear: float, yaw: float, following: bool, frame_id: int | None = None) -> np.ndarray:
+             linear: float, yaw: float, following: bool, frame_id: int | None = None,
+             radar_projection: np.ndarray | None = None) -> np.ndarray:
     # Rendering is intentionally performed at web-preview resolution. The
     # controller continues to use original calibration coordinates and the
     # native depth/mask tensors; only pipeline 6 is downscaled.
@@ -1054,6 +1061,14 @@ def annotate(result, depth: np.ndarray | None, people: list[Person], target_id: 
     scale = min(1.0, DISPLAY_PANEL_MAX_WIDTH / image_w)
     preview_size = max(1, round(image_w * scale)), max(1, round(image_h * scale))
     view = cv2.resize(original, preview_size, interpolation=cv2.INTER_AREA)
+    if radar_projection is not None:
+        for u, v, distance in radar_projection:
+            # Yellow to red encodes near to far while staying visible over masks.
+            fraction = min(1.0, max(0.0, distance / 8.0))
+            color = (0, round(230 * (1 - fraction)), 255)
+            pixel = (round(u * scale), round(v * scale))
+            cv2.circle(view, pixel, 5, (10, 10, 10), -1, cv2.LINE_AA)
+            cv2.circle(view, pixel, 3, color, -1, cv2.LINE_AA)
     for person in people:
         color = (0, 255, 0) if person.id == target_id else (0, 180, 255)
         foreground = preview_mask(person.mask, (image_w, image_h), preview_size)
@@ -1126,6 +1141,7 @@ class MotionManager:
         # Fail-safe default: no non-zero command is possible until an operator
         # explicitly releases the latch in the web UI.
         self.estop = True
+        self.radar_reconfiguring = False
         self.target_visible = False
         self.target_distance = None
         self.auto_linear = 0.0
@@ -1208,9 +1224,25 @@ class MotionManager:
 
     def set_estop(self, enabled: bool):
         with self.lock:
+            if not enabled and self.radar_reconfiguring:
+                raise HTTPException(status_code=409, detail="雷达设置尚未完成，请保持强制停止")
             self.estop = enabled
             self.stop_now()
             return self.status()
+
+    def begin_radar_configuration(self):
+        with self.lock:
+            if not self.estop:
+                raise HTTPException(status_code=409, detail="修改雷达设置前，请先按“强制停止”")
+            self.radar_reconfiguring = True
+            # Releasing the stop after a sensor change must not resume an old
+            # follow session without a new explicit Start Follow action.
+            self.following = False
+            self.stop_now()
+
+    def end_radar_configuration(self):
+        with self.lock:
+            self.radar_reconfiguring = False
 
     def manual(self, direction: str):
         with self.lock:
@@ -1276,6 +1308,7 @@ class MotionManager:
             system_state_fresh = now - self.system_state_seen_at <= 2.0
             return {"motion_mode": self.mode, "following": self.following,
                     "force_stopped": self.estop,
+                    "radar_reconfiguring": self.radar_reconfiguring,
                     "target_visible": self.target_visible and tracking_fresh,
                     "target_distance_m": self.target_distance if distance_fresh else None,
                     "latest_control_frame_id": self.auto_frame_id or None,
@@ -1364,10 +1397,12 @@ class ProcessingEngine:
     RESULT_BUFFER_CAPACITY = 4
     JOIN_QUEUE_CAPACITY = 128
 
-    def __init__(self, settings: FollowSettings, motion: MotionManager,
+    def __init__(self, settings: FollowSettings, motion: MotionManager, radar: RadarManager,
                  processed_store: FrameStore, persist_images: Callable[[], bool]):
         self.settings = settings
         self.motion = motion
+        self.radar = radar
+        self.scale = ScaleKalman()
         self.processed_store = processed_store
         self.identity = PersistentIdentityManager(settings)
         self.pid = FollowPID()
@@ -1410,6 +1445,9 @@ class ProcessingEngine:
         self._control_latency: float | None = None
         self._display_latency: float | None = None
         self._people: list[Person] = []
+        self._radar_pair_delta_ms: float | None = None
+        self._radar_projected_points = 0
+        self._target_distance_method: str | None = None
         self._persist_images = persist_images
 
         self.error = ""
@@ -1443,7 +1481,7 @@ class ProcessingEngine:
         self._draw_thread.start()
 
     def offer(self, image: np.ndarray, source_at: float | None = None,
-              camera_frame_number: int | None = None):
+              camera_frame_number: int | None = None, stamp_ns: int | None = None):
         """Pipeline 1: append a non-wrapping, immutable BGR frame to buffer_c."""
         captured_at = time.monotonic() if source_at is None else source_at
         with self._camera_condition:
@@ -1458,6 +1496,7 @@ class ProcessingEngine:
             self._last_received_frame_id = camera_frame_number
             record = FrameRecord(
                 self._stream_epoch, int(camera_frame_number), captured_at, image,
+                time.time_ns() if stamp_ns is None else int(stamp_ns),
             )
             if len(self._buffer_c) >= self.CAMERA_BUFFER_CAPACITY:
                 self.camera_buffer_evicted += 1
@@ -1520,12 +1559,12 @@ class ProcessingEngine:
             maximum_age = max(15.0, 3.0 / self.settings.depth_fps)
             return self._latest if time.monotonic() - self._last_processed <= maximum_age else None
 
-    def configure(self, settings: FollowSettings):
+    def configure(self, settings: FollowSettings, force: bool = False):
         """Atomically publish a new config generation; never mix generations."""
         with self._camera_condition:
             previous = self.settings
             self.settings = settings
-            if settings != previous:
+            if settings != previous or force:
                 self.identity.configure(
                     settings.persistent_identity_enabled, settings.target_id,
                 )
@@ -1541,8 +1580,15 @@ class ProcessingEngine:
                 self._kalman_time_scale = None
                 self._latest_tracking_control_frame_id = 0
                 self.pid.reset()
+                if force or (settings.distance_mode != previous.distance_mode
+                             or settings.camera_height_m != previous.camera_height_m):
+                    self.scale.reset()
+                    self._radar_pair_delta_ms = None
+                    self._radar_projected_points = 0
+                    self._target_distance_method = None
                 self.depth.reconfigure()
                 self._drain_queue(self._draw_pending)
+                self._latest = None
                 with self.motion.lock:
                     self.motion.settings = settings
                     self.motion.stop_now()
@@ -1598,11 +1644,17 @@ class ProcessingEngine:
                 "visible_people": [
                     {"id": p.id, "tracker_id": p.internal_id,
                      "distance_m": round(p.distance, 2)
-                     if p.distance is not None else None}
+                     if p.distance is not None else None, "distance_method": p.method}
                     for p in self._people
                 ],
+                "radar_pair_delta_ms": self._radar_pair_delta_ms,
+                "radar_projected_points": self._radar_projected_points,
+                "target_distance_method": self._target_distance_method,
+                "visual_scale": round(self.scale.value, 4),
+                "visual_scale_samples": self.scale.samples,
             }
         result.update(depth_status)
+        result.update(self.radar.status())
         result.update(identity_status)
         result.update(self.motion.status())
         return result
@@ -1864,22 +1916,40 @@ class ProcessingEngine:
             raise ValueError("Tracking/depth frame mismatch")
         if tracking.config_version != depth.config_version:
             raise ValueError("Tracking/depth configuration mismatch")
+        with self.radar.lock:
+            radar_enabled = self.radar.settings.enabled
+            radar_settings = self.radar.settings
+            radar_frame = self.radar.nearest(tracking.frame.stamp_ns) if radar_enabled else None
+        projected = np.empty((0, 3), dtype=np.float64)
+        if radar_frame is not None:
+            matrix = transform_matrix(*radar_settings.extrinsics())
+            projected = project_points(
+                radar_frame.points, matrix, tracking.calibration.k,
+                tracking.calibration.distortion, tracking.calibration.width,
+                tracking.calibration.height,
+            )
         people: list[Person] = []
+        visual_distances: dict[int, float | None] = {}
+        radar_distances: dict[int, tuple[float | None, int]] = {}
         for person in tracking.people:
             try:
-                distance, method, center, foot = measured_distance(
+                visual, method, center, foot = measured_distance(
                     person.mask, depth.depth, tracking.calibration,
                     tracking.settings.camera_height_m, tracking.settings.distance_mode,
                 )
             except (ValueError, IndexError):
-                distance, method = None, "invalid-depth"
+                visual, method = None, "invalid-depth"
                 center, foot = person.center, person.foot
+            visual_distances[person.id] = visual
+            radar_distances[person.id] = person_radar_range(
+                projected, person.box, person.mask,
+                (tracking.calibration.width, tracking.calibration.height),
+            ) if radar_enabled else (None, 0)
             people.append(Person(
                 person.id, person.confidence, person.box, person.mask,
-                center, foot, distance, method, person.internal_id,
+                center, foot, visual, method, person.internal_id,
             ))
 
-        target = next((p for p in people if p.id == tracking.settings.target_id), None)
         with self.lock:
             if tracking.config_version != self._config_version:
                 self.rejected_config_results += 1
@@ -1892,6 +1962,29 @@ class ProcessingEngine:
                 return
             if tracking.frame.frame_id <= self._last_controlled_frame_id:
                 return
+            if radar_enabled:
+                target_radar, target_count = radar_distances.get(
+                    tracking.settings.target_id, (None, 0))
+                target_visual = visual_distances.get(tracking.settings.target_id)
+                if target_radar is not None and target_visual is not None:
+                    self.scale.update(target_radar, target_visual, target_count)
+                for person in people:
+                    radar_distance, _ = radar_distances[person.id]
+                    if radar_distance is not None:
+                        person.distance, person.method = radar_distance, "radar"
+                    elif person.distance is not None:
+                        person.distance *= self.scale.value
+                        person.method = ("visual-scaled" if self.scale.samples
+                                         else "visual-uncalibrated")
+                    else:
+                        person.method = "unavailable"
+            target = next((p for p in people if p.id == tracking.settings.target_id), None)
+            self._radar_pair_delta_ms = (
+                round((radar_frame.stamp_ns - tracking.frame.stamp_ns) / 1e6, 3)
+                if radar_frame is not None else None
+            )
+            self._radar_projected_points = len(projected)
+            self._target_distance_method = target.method if target else None
             with self.motion.lock:
                 active = (self.motion.following and self.motion.mode == "auto"
                           and not self.motion.estop)
@@ -1932,7 +2025,7 @@ class ProcessingEngine:
         self._offer_draw(DrawJob(
             tracking.frame.frame_id, tracking.track, depth.depth, people,
             tracking.settings.target_id, linear if active else 0.0,
-            yaw if active else 0.0, active, tracking.frame.source_at,
+            yaw if active else 0.0, active, tracking.frame.source_at, projected,
         ))
 
     def _draw_loop(self):
@@ -1963,6 +2056,7 @@ class ProcessingEngine:
                 output = annotate(
                     job.track, job.depth, job.people, job.target_id,
                     job.linear, job.yaw, job.following, job.frame_id,
+                    job.radar_projection,
                 )
                 ok, buffer = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if not ok:
@@ -2025,7 +2119,7 @@ class ConfigurationStore:
 
     def current(self) -> Configuration:
         return Configuration(capture=self.bridge.settings, camera=self.camera.settings,
-                             follow=self.engine.settings)
+                             follow=self.engine.settings, radar=self.engine.radar.settings)
 
     def names(self) -> list[str]:
         return sorted((p.name for p in CONFIG_DIRECTORY.glob("*.json") if p.is_file()), reverse=True)
@@ -2049,6 +2143,18 @@ class ConfigurationStore:
         # Stop before a camera parameter service call, which may take seconds.
         self.engine.pid.reset()
         self.engine.motion.stop_now()
+        with self.engine.lock:
+            radar_changed = (config.radar != self.engine.radar.settings
+                             or self.engine.radar.needs_recovery())
+            if radar_changed:
+                self.engine.motion.begin_radar_configuration()
+            try:
+                self.engine.radar.configure(config.radar, from_saved_config=True)
+                if radar_changed:
+                    self.engine.configure(self.engine.settings, force=True)
+            finally:
+                if radar_changed:
+                    self.engine.motion.end_radar_configuration()
         if self.camera.state()["camera_process_running"]:
             self.camera.apply_settings(config.camera)
         else:
@@ -2081,11 +2187,43 @@ def build_app(bridge: CameraBridge, raw_store: FrameStore, camera: CameraControl
 
     @app.post("/api/config/load/{filename}")
     def load_config(filename: str):
-        return configs.load(filename)
+        try:
+            return configs.load(filename)
+        except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/follow/settings")
     def follow_settings(settings: FollowSettings):
         return engine.configure(settings).model_dump()
+
+    @app.get("/api/radar/transforms")
+    def radar_transforms():
+        return transform_names()
+
+    @app.get("/api/radar/transforms/{filename}")
+    def radar_transform(filename: str):
+        try:
+            return load_transform(filename)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/radar/settings")
+    def radar_settings(settings: RadarSettings):
+        try:
+            with engine.lock:
+                changed = settings != engine.radar.settings or engine.radar.needs_recovery()
+                if changed:
+                    motion.begin_radar_configuration()
+                try:
+                    engine.radar.configure(settings)
+                    if changed:
+                        engine.configure(engine.settings, force=True)
+                finally:
+                    if changed:
+                        motion.end_radar_configuration()
+            return engine.radar.settings.model_dump()
+        except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/follow/start")
     def follow_start():
@@ -2157,7 +2295,7 @@ def main():
     processed_store = FrameStore(ROOT / "data" / "img_processed", 10)
     raw_store = FrameStore(ROOT / "data" / "img_raw", args.max_frames)
     bridge = CameraBridge(capture, args.preview_fps, raw_store)
-    node = camera = motion = engine = executor = spin_thread = replay_thread = None
+    node = camera = motion = radar = engine = executor = spin_thread = replay_thread = None
     try:
         rclpy.init()
         node = rclpy.create_node("visual_car_control")
@@ -2168,8 +2306,9 @@ def main():
         spin_thread.start()
         camera = CameraController(node, bridge, args.no_launch)
         motion = MotionManager(node, args.cmd_vel_topic, follow)
+        radar = RadarManager(node, RadarSettings())
         engine = ProcessingEngine(
-            follow, motion, processed_store,
+            follow, motion, radar, processed_store,
             persist_images=lambda: bridge.settings.persist_images,
         )
         bridge.on_frame = engine.offer
@@ -2199,6 +2338,8 @@ def main():
             camera.shutdown()
         if engine is not None:
             engine.close()
+        if radar is not None:
+            radar.close()
         if replay_thread is not None:
             replay_thread.join(timeout=2)
         if motion is not None:

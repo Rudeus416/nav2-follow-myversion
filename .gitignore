@@ -4,6 +4,7 @@
 !/data/param_configs/**
 !/data/data_transfer/
 !/data/data_transfer/**
+/mvs_package/*
 # !/data/data_calib/
 # /data/data_calib/*
 # !/data/data_calib/.gitkeep
