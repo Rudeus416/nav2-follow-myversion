@@ -1,0 +1,172 @@
+# ROS 2 Humble. Measure footprint and radar->base_link TF before enabling.
+bt_navigator:
+  ros__parameters:
+    global_frame: odom
+    robot_base_frame: base_link
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_compute_path_through_poses_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_pipeline_sequence_bt_node
+controller_server:
+  ros__parameters:
+    controller_frequency: 20.0
+    failure_tolerance: 0.0
+    progress_checker_plugin: progress_checker
+    goal_checker_plugins: [goal_checker]
+    controller_plugins: [FollowPath]
+    progress_checker:
+      # Count measured rotation as progress during low-speed turnarounds.
+      plugin: nav2_controller::PoseProgressChecker
+      required_movement_radius: 0.15
+      required_movement_angle: 0.15  # radians, about 8.6 degrees
+      movement_time_allowance: 10.0
+    goal_checker:
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.7  # ~40 degrees, final heading only
+      stateful: true
+    FollowPath:
+      plugin: dwb_core::DWBLocalPlanner
+      min_vel_x: 0.0
+      min_vel_y: 0.0
+      max_vel_x: 0.3
+      max_vel_y: 0.0
+      max_vel_theta: 0.5
+      min_speed_xy: 0.0
+      max_speed_xy: 0.3
+      min_speed_theta: 0.0
+      acc_lim_x: 0.3
+      acc_lim_y: 0.0
+      acc_lim_theta: 0.5
+      decel_lim_x: -0.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -0.8
+      vx_samples: 15
+      vy_samples: 1
+      vtheta_samples: 20
+      sim_time: 2.0
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      trans_stopped_velocity: 0.03
+      short_circuit_trajectory_evaluation: true
+      critics: [RotateToGoal, Oscillation, ObstacleFootprint, PathAlign, PathDist, GoalDist]
+      ObstacleFootprint.scale: 10.0
+      PathAlign.scale: 12.0  # softer path alignment; collision checks unchanged
+      PathAlign.forward_point_distance: 0.1
+      PathDist.scale: 24.0
+      GoalDist.scale: 20.0
+      RotateToGoal.scale: 32.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 0.0  # on-demand planning, no periodic rate expected
+    planner_plugins: [GridBased]
+    GridBased:
+      # Heading-aware search checks the rectangular costmap footprint, not only a center point.
+      plugin: nav2_smac_planner/SmacPlannerHybrid
+      tolerance: 0.15
+      allow_unknown: false
+      downsample_costmap: false
+      angle_quantization_bins: 72
+      motion_model_for_search: DUBIN
+      minimum_turning_radius: 0.4  # provisional conservative value; validate on chassis
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 2.0
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 1.6
+      cost_penalty: 2.0
+      smooth_path: false
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      global_frame: odom
+      robot_base_frame: base_link
+      update_frequency: 10.0
+      publish_frequency: 2.0
+      transform_tolerance: 0.2
+      rolling_window: true
+      width: 10
+      height: 10
+      resolution: 0.05
+      # User-specified length 0.494 m, width 0.364 m; base_link at rectangle center.
+      footprint: '[[0.247,0.182],[0.247,-0.182],[-0.247,-0.182],[-0.247,0.182]]'
+      footprint_padding: 0.05
+      track_unknown_space: false
+      plugins: [obstacles, inflation]
+      obstacles:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        max_obstacle_height: 1000000.0
+        enabled: true
+        observation_sources: radar
+        radar:
+          topic: /ti_mmwave/radar_scan_pcl
+          # Existing ti_mmwave_point_node frame, not raw ADC frame "radar".
+          sensor_frame: ti_mmwave_0
+          data_type: PointCloud2
+          marking: true
+          clearing: true
+          observation_persistence: 0.0
+          # Existing follow profile: 200 ms period; allow three periods.
+          expected_update_rate: 0.6
+          # Height filtering relaxed for planar commissioning (not measured bounds).
+          min_obstacle_height: -1000000.0
+          max_obstacle_height: 1000000.0
+          obstacle_min_range: 0.15
+          obstacle_max_range: 5.0
+          raytrace_min_range: 0.15
+          raytrace_max_range: 5.0
+      inflation:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.45
+        cost_scaling_factor: 3.0
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      global_frame: odom
+      robot_base_frame: base_link
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      transform_tolerance: 0.2
+      rolling_window: true
+      width: 10
+      height: 10
+      resolution: 0.05
+      # User-specified length 0.494 m, width 0.364 m; base_link at rectangle center.
+      footprint: '[[0.247,0.182],[0.247,-0.182],[-0.247,-0.182],[-0.247,0.182]]'
+      footprint_padding: 0.05
+      track_unknown_space: false
+      plugins: [obstacles, inflation]
+      obstacles:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        max_obstacle_height: 1000000.0
+        enabled: true
+        observation_sources: radar
+        radar:
+          topic: /ti_mmwave/radar_scan_pcl
+          # Existing ti_mmwave_point_node frame, not raw ADC frame "radar".
+          sensor_frame: ti_mmwave_0
+          data_type: PointCloud2
+          marking: true
+          clearing: true
+          observation_persistence: 0.0
+          # Existing follow profile: 200 ms period; allow three periods.
+          expected_update_rate: 0.6
+          # Height filtering relaxed for planar commissioning (not measured bounds).
+          min_obstacle_height: -1000000.0
+          max_obstacle_height: 1000000.0
+          obstacle_min_range: 0.15
+          obstacle_max_range: 5.0
+          raytrace_min_range: 0.15
+          raytrace_max_range: 5.0
+      inflation:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.45
+        cost_scaling_factor: 3.0

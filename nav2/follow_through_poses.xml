@@ -1,0 +1,9 @@
+<!-- Humble initializes both navigators; keep both trees free of recovery servers. -->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="FollowStableThroughPath">
+      <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="GridBased"/>
+      <FollowPath path="{path}" controller_id="FollowPath" goal_checker_id="goal_checker"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

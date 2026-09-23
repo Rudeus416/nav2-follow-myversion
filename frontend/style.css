@@ -21,6 +21,10 @@ h2 { font-size: 19px; margin: 0 0 12px; }
 .preview-caption { padding: 12px 18px; color: #a7b5cb; font-size: 13px; background: #141e2d; }
 .columns { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 18px; margin: 18px 0; }
 .panel { padding: 24px; }
+.obstacle-map-panel { margin: 18px 0; }
+.obstacle-map-view { max-width: 420px; margin: 0 auto; }
+#obstacleMap { display: block; width: 100%; height: auto; background: #101827; border-radius: 8px; }
+#mapStatus { overflow-wrap: anywhere; }
 form { display: grid; gap: 16px; }
 label { display: grid; gap: 7px; font-size: 14px; }
 input { width: 100%; padding: 11px 12px; border: 1px solid #3a4a62; border-radius: 9px; background: #0e1727; color: #f2f6fc; font: inherit; }
@@ -69,3 +73,10 @@ select { min-width: 190px; padding: 11px 12px; border: 1px solid #3a4a62; border
 .frame-grid a { display: block; aspect-ratio: 4 / 3; background: #0b1422; border-radius: 9px; overflow: hidden; }
 .frame-grid img { display: block; width: 100%; height: 100%; object-fit: cover; }
 @media (max-width: 760px) { .columns { grid-template-columns: 1fr; } header { align-items: flex-start; } .stats, .motion-stats { grid-template-columns: 1fr 1fr; } .camera-settings, .follow-settings, .advanced-grid, .radar-grid, .radar-checks { grid-template-columns: 1fr; } .manual-pad { grid-template-columns: repeat(3, 95px); } .config-panel .actions, .transform-loader { flex-wrap: wrap; } }
+#obstacleMap.editing { touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#mapEditor .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.nav-wall-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; }
+.virtual-wall-view input[type=number] { max-width: 140px; }
+#wallImage { width: 100%; height: auto; }
+@media (max-width: 760px) { .nav-wall-layout { grid-template-columns: 1fr; } }

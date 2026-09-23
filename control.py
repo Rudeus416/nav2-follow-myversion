@@ -1123,7 +1123,9 @@ def annotate(result, depth: np.ndarray | None, people: list[Person], target_id: 
 class MotionManager:
     """The sole /cmd_vel publisher; emergency stop wins over all modes."""
 
-    def __init__(self, node, topic: str, settings: FollowSettings):
+    def __init__(self, node, topic: str, settings: FollowSettings, navigation=None):
+        self.navigation = navigation
+        self.nav_measurement = None
         self.topic = topic
         self.settings = settings
         self.lock = threading.RLock()
@@ -1196,6 +1198,10 @@ class MotionManager:
 
     def stop_now(self):
         with self.lock:
+            if self.navigation is not None:
+                self.navigation.stop('用户停止、模式切换或配置变更，重置控制')
+                self.navigation.clear_preview()
+            self.nav_measurement = None
             self.auto_linear = self.auto_yaw = 0.0
             self.manual_linear = self.manual_yaw = 0.0
             self.manual_direction = "stop"
@@ -1267,10 +1273,12 @@ class MotionManager:
             self.target_visible = visible
             self.auto_yaw = yaw if visible else 0.0
             if not visible:
+                if self.navigation is not None and not (getattr(self.navigation, 'fixed_goal_active', False) is True):
+                    self.navigation.stop(f'跟踪帧 {frame_id}：目标 ID {self.settings.target_id} 丢失')
                 self.target_distance = None
                 self.auto_linear = 0.0
                 self.distance_seen_at = 0.0
-                if self.mode == "auto":
+                if self.mode == "auto" and not (getattr(self.navigation, "fixed_goal_active", False) is True):
                     self._publish(0.0, 0.0)
             return True
 
@@ -1289,24 +1297,93 @@ class MotionManager:
             self.auto_yaw = yaw if visible and distance is not None else 0.0
             self.distance_seen_at = source_at if visible and distance is not None else 0.0
             if self.mode == "auto" and (not visible or distance is None):
+                if self.navigation is not None and not (getattr(self.navigation, 'fixed_goal_active', False) is True):
+                    self.navigation.stop(f'融合帧 {frame_id}：目标丢失或距离缺失')
                 # A lost or unmeasurable target stops immediately, even while
                 # BoT-SORT still holds its latent track for possible recovery.
-                self._publish(0.0, 0.0)
+                if not (getattr(self.navigation, "fixed_goal_active", False) is True):
+                    self._publish(0.0, 0.0)
             return True
 
     def command_timeout(self) -> float:
         """Allow at most three depth/control periods, capped for safety."""
         return min(1.0, max(0.25, 3.0 / self.settings.depth_fps))
 
+    def nav_stop_reason(self, now):
+        if self.estop:
+            return '强制停止'
+        if self.mode != 'auto' or not self.following:
+            return '未处于自动跟随'
+        if not self.target_visible:
+            return f'目标 ID {self.settings.target_id} 丢失'
+        if self.target_distance is None:
+            return '目标距离缺失'
+        timeout = self.target_timeout()
+        if now - self.tracking_seen_at > timeout:
+            return f'目标跟踪超时：{now - self.tracking_seen_at:.3f} 秒 > {timeout:.2f} 秒'
+        if now - self.distance_seen_at > timeout:
+            return f'目标距离超时：{now - self.distance_seen_at:.3f} 秒 > {timeout:.2f} 秒'
+        return '当前融合测量不满足导航更新条件'
+
+    def handle_nav_measurement_pause(self, now):
+        """Zero output is enforced by caller; retain only briefly stale goals."""
+        if ((getattr(self.navigation, 'fixed_goal_active', False) is True)
+                and not self.estop and self.mode == 'auto' and not self.following):
+            return
+        age = max(now - self.tracking_seen_at, now - self.distance_seen_at)
+        if (not self.estop and self.mode == 'auto' and self.following
+                and self.target_visible and self.target_distance is not None
+                and self.target_timeout() < age <= self.target_timeout() + 0.8):
+            self.navigation.hold_for_visual_update()
+        else:
+            self.navigation.stop(self.nav_stop_reason(now))
+
+    def target_timeout(self) -> float:
+        """Nav2 has a separate bounded visual latency budget."""
+        return 1.2 if self.navigation is not None else self.command_timeout()
+
     def status(self):
         with self.lock:
             now = time.monotonic()
-            timeout = self.command_timeout()
+            timeout = self.target_timeout()
             tracking_fresh = now - self.tracking_seen_at <= timeout
             distance_fresh = now - self.distance_seen_at <= timeout
             battery_fresh = now - self.battery_seen_at <= 2.0
             system_state_fresh = now - self.system_state_seen_at <= 2.0
-            return {"motion_mode": self.mode, "following": self.following,
+            nav = self.navigation.status() if self.navigation else {"nav2_enabled": False}
+            if self.estop:
+                reason = '强制停止已锁存'
+            elif self.mode != 'auto':
+                reason = '当前为手动模式'
+            elif (getattr(self.navigation, 'fixed_goal_active', False) is True):
+                reason = nav['nav2_error'] or '正在导航到所选终点'
+            elif not self.following:
+                reason = '尚未开始跟随'
+            elif not tracking_fresh:
+                reason = f'目标跟踪数据超时（超过 {timeout:.2f} 秒）'
+            elif not self.target_visible:
+                reason = f'未检测到所选人物 ID {self.settings.target_id}'
+            elif self.target_distance is None:
+                reason = '所选人物没有有效距离'
+            elif not distance_fresh:
+                reason = f'人物距离数据超时（超过 {timeout:.2f} 秒）'
+            elif self.navigation and not nav['nav2_radar_fresh']:
+                reason = '雷达未提供新鲜点云（超过 0.6 秒）'
+            elif self.navigation and nav['nav2_canceling']:
+                reason = '正在取消旧导航目标，等待切换'
+            elif self.navigation and nav['nav2_goal_pending']:
+                reason = '导航目标已发送，等待 Nav2 接受'
+            elif self.navigation and not nav['nav2_goal_active']:
+                reason = nav['nav2_error'] or '尚未生成有效导航目标'
+            elif self.navigation and not nav['nav2_command_fresh']:
+                reason = '导航目标已接受，等待有效速度（可能仍在规划）'
+            elif abs(self.published_linear) < 1e-6 and abs(self.published_yaw) < 1e-6:
+                reason = '控制器当前输出零速度'
+            else:
+                reason = '正在输出运动指令'
+            return {**nav, 'motion_reason': reason,
+                    'preview_target': self.preview_target_diagnostics(now),
+                    "motion_mode": self.mode, "following": self.following,
                     "force_stopped": self.estop,
                     "radar_reconfiguring": self.radar_reconfiguring,
                     "target_visible": self.target_visible and tracking_fresh,
@@ -1325,6 +1402,46 @@ class MotionManager:
                     "linear_x_mps": round(self.published_linear, 3),
                     "angular_z_radps": round(self.published_yaw, 3),
                     "manual_direction": self.manual_direction}
+
+    def preview_target_diagnostics(self, now=None):
+        """Shared display/request checks, evaluated under the motion lock."""
+        now = time.monotonic() if now is None else now
+        # Stationary planning only; keep motion's command_timeout independent.
+        timeout = 2.0
+        measurement = self.nav_measurement
+        tracking_age = now - self.tracking_seen_at if self.tracking_seen_at else None
+        measurement_age = now - measurement[2] if measurement is not None else None
+        problems = []
+        if not self.target_visible:
+            problems.append(f'最新跟踪结果中人物 ID {self.settings.target_id} 不可见')
+        if tracking_age is None:
+            problems.append('尚未收到跟踪结果')
+        elif tracking_age > timeout:
+            problems.append(f'跟踪数据超时：{tracking_age:.3f} 秒，阈值 {timeout:.3f} 秒')
+        if measurement is None:
+            problems.append('尚无可用于导航的同帧距离与方位测量')
+        elif measurement_age > timeout:
+            problems.append(f'距离/方位数据超时：{measurement_age:.3f} 秒，阈值 {timeout:.3f} 秒')
+        return {'target_id': self.settings.target_id, 'visible_in_latest_tracking': self.target_visible,
+                'tracking_age': round(tracking_age, 3) if tracking_age is not None else None,
+                'measurement_age': round(measurement_age, 3) if measurement_age is not None else None,
+                'last_distance_m': measurement[0] if measurement is not None else None,
+                'timeout': timeout, 'ready': not problems, 'problems': problems}
+
+    def preview_path(self):
+        with self.lock:
+            if not self.estop:
+                raise HTTPException(status_code=409, detail='请先按强制停止，再预览路径')
+            if self.navigation is None:
+                raise HTTPException(status_code=409, detail='未启用 Nav2，请以 NAV2_ENABLED=1 启动')
+            if self.radar_reconfiguring:
+                raise HTTPException(status_code=409, detail='请等待雷达设置完成')
+            diagnostics = self.preview_target_diagnostics()
+            if not diagnostics['ready']:
+                raise HTTPException(status_code=409, detail='；'.join(diagnostics['problems']))
+            measurement = self.nav_measurement
+            self.navigation.preview_path(measurement[0], measurement[1], self.settings.follow_distance_m)
+            return self.navigation.status()['nav2_preview']
 
     def _loop(self):
         last = time.monotonic()
@@ -1368,12 +1485,23 @@ class MotionManager:
                         else:
                             self.manual_linear = self.manual_yaw = 0.0
                     linear, yaw = self.manual_linear, self.manual_yaw
+                elif (getattr(self.navigation, 'fixed_goal_active', False) is True):
+                    linear, yaw = self.navigation.velocity()
+                    linear = max(-s.max_reverse_mps, min(s.max_forward_mps, linear))
+                    yaw = max(-s.max_yaw_radps, min(s.max_yaw_radps, yaw))
                 elif (self.following and self.target_visible and self.target_distance is not None
-                      and now - self.tracking_seen_at <= self.command_timeout()
-                      and now - self.distance_seen_at <= self.command_timeout()):
-                    linear, yaw = self.auto_linear, self.auto_yaw
+                      and now - self.tracking_seen_at <= self.target_timeout()
+                      and now - self.distance_seen_at <= self.target_timeout()):
+                    if self.navigation is not None:
+                        linear, yaw = self.navigation.velocity()
+                        linear = max(-s.max_reverse_mps, min(s.max_forward_mps, linear))
+                        yaw = max(-s.max_yaw_radps, min(s.max_yaw_radps, yaw))
+                    else:
+                        linear, yaw = self.auto_linear, self.auto_yaw
                 else:
                     linear = yaw = 0.0
+                    if self.navigation is not None:
+                        self.handle_nav_measurement_pause(now)
                 self._publish(linear, yaw)
 
     def close(self):
@@ -2008,6 +2136,22 @@ class ProcessingEngine:
             if not accepted:
                 self.rejected_stale_control_results += 1
                 return
+            if self.motion.navigation is not None:
+                with self.motion.lock:
+                    # Recheck the stop latch while holding the publishing lock.
+                    nav_active = (self.motion.following and self.motion.mode == "auto"
+                                  and not self.motion.estop
+                                  and time.monotonic() - tracking.frame.source_at <= self.motion.target_timeout())
+                    self.motion.nav_measurement = None
+                    if target is not None and target.distance is not None:
+                        ray, _ = tracking.calibration.normalized(
+                            np.array([target.center[0]]), np.array([target.center[1]]))
+                        self.motion.nav_measurement = (target.distance, -math.atan(float(ray[0])), tracking.frame.source_at)
+                    if nav_active and self.motion.nav_measurement is not None:
+                        self.motion.navigation.update(*self.motion.nav_measurement[:2],
+                                                      tracking.settings.follow_distance_m)
+                    else:
+                        self.motion.handle_nav_measurement_pause(time.monotonic())
             completed_at = time.monotonic()
             self._last_controlled_frame_id = tracking.frame.frame_id
             self._people = people
@@ -2167,11 +2311,49 @@ class ConfigurationStore:
         return {"name": name, "config": self.current().model_dump()}
 
 
+def create_obstacle_view(navigation, node, radar_topic):
+    # Ordinary following must not import optional Nav2 visualization dependencies.
+    if navigation is None:
+        return None
+    from obstacle_view import ObstacleView
+    return ObstacleView(node, radar_topic)
+
+
 def build_app(bridge: CameraBridge, raw_store: FrameStore, camera: CameraController,
               engine: ProcessingEngine, processed_store: FrameStore,
-              motion: MotionManager):
+              motion: MotionManager, obstacle_view=None):
     app = make_app(bridge, raw_store, camera, engine, processed_store)
     configs = ConfigurationStore(bridge, camera, engine)
+    if motion.navigation is not None and obstacle_view is not None:
+        from nav2.virtual_wall import attach
+        attach(app, bridge, motion, obstacle_view)
+        from nav2.route_preview import attach as attach_route_preview
+        attach_route_preview(app, engine, motion, obstacle_view)
+
+
+    @app.post("/api/nav2/preview")
+    def preview_path():
+        return motion.preview_path()
+
+    @app.get("/api/obstacle-map")
+    def obstacle_map():
+        return obstacle_view.snapshot() if obstacle_view else {"frame": "odom", "layers": {}, "errors": {}}
+
+    @app.post("/api/nav2/map-edit")
+    def edit_nav_map(payload: dict):
+        with motion.lock:
+            if not motion.estop:
+                raise HTTPException(status_code=409, detail='请先强制停止，再编辑地图')
+            if (motion.navigation is None or obstacle_view is None
+                    or motion.navigation.obstacle_mode not in ('map', 'both')):
+                raise HTTPException(status_code=409, detail='仅地图或叠加模式支持编辑')
+            try:
+                result = obstacle_view.edit_map(payload.get('action'), payload.get('rect'),
+                                               payload.get('base_id'), payload.get('revision'))
+                motion.navigation.clear_preview()
+                return result
+            except (ValueError, OSError) as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/config/current")
     def current_config():
@@ -2279,12 +2461,25 @@ def main():
     parser.add_argument("--max-frames", type=int, default=20)
     parser.add_argument("--image-topic", default="/hk_camera/image_raw")
     parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
+    parser.add_argument("--nav2", action="store_true", help="Use Nav2 radar obstacle avoidance for automatic following")
+    parser.add_argument("--nav2-radar-topic", default="/ti_mmwave/radar_scan_pcl")
+    parser.add_argument("--nav2-radar-frame", default="ti_mmwave_0")
+    parser.add_argument("--nav2-radar-calibration", default="20260920_160622_946624.json",
+                        help="Existing radar-to-camera calibration filename; not a base_link TF")
+    parser.add_argument("--nav2-camera-pose", type=float, nargs=3, metavar=("X", "Y", "YAW"),
+                        default=(0.0, 0.0, 0.0), help="Camera planar pose; default preserves legacy no-offset-compensation assumption")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8890)
     parser.add_argument("--no-launch", action="store_true")
     parser.add_argument("--replay-existing", action="store_true",
                         help="Replay img_raw JPEGs in timestamp order as a simulated photo stream")
     args = parser.parse_args()
+    if args.nav2_camera_pose is not None and not all(math.isfinite(v) for v in args.nav2_camera_pose):
+        parser.error("nav2-camera-pose must contain finite values")
+    radar_settings = RadarSettings()
+    if args.nav2:
+        radar_settings = RadarSettings(**{**load_transform(args.nav2_radar_calibration),
+                                         "radar_topic": args.nav2_radar_topic})
     capture = CaptureSettings(fps=args.fps, tracking_fps=args.camera_fps,
                               duration=args.duration)
     follow = FollowSettings(process_fps=args.process_fps, depth_fps=args.depth_fps)
@@ -2305,12 +2500,19 @@ def main():
         spin_thread = threading.Thread(target=executor.spin, daemon=True)
         spin_thread.start()
         camera = CameraController(node, bridge, args.no_launch)
-        motion = MotionManager(node, args.cmd_vel_topic, follow)
-        radar = RadarManager(node, RadarSettings())
+        navigation = None
+        if args.nav2:
+            from nav2_follow import Nav2Follower
+            navigation = Nav2Follower(node, args.nav2_radar_topic, args.nav2_camera_pose, args.nav2_radar_frame)
+        motion = MotionManager(node, args.cmd_vel_topic, follow, navigation)
+        radar = RadarManager(node, radar_settings)
         engine = ProcessingEngine(
             follow, motion, radar, processed_store,
             persist_images=lambda: bridge.settings.persist_images,
         )
+        if navigation is not None and navigation.vision_enabled:
+            from nav2.vision_layer import VisionLayer
+            vision_layer = VisionLayer(node, engine, navigation)
         bridge.on_frame = engine.offer
         if args.replay_existing:
             paths = sorted(raw_store.directory.glob("frame_*.jpg"))
@@ -2328,7 +2530,8 @@ def main():
             time.sleep(1)  # Allow discovery of a camera launched elsewhere.
             camera.start(initial=True)
         print(f"Control page: http://127.0.0.1:{args.port}; image={args.image_topic}; cmd_vel={args.cmd_vel_topic}", flush=True)
-        uvicorn.run(build_app(bridge, raw_store, camera, engine, processed_store, motion),
+        obstacle_view = create_obstacle_view(navigation, node, args.nav2_radar_topic)
+        uvicorn.run(build_app(bridge, raw_store, camera, engine, processed_store, motion, obstacle_view),
                     host=args.host, port=args.port, workers=1)
     finally:
         bridge.on_frame = None

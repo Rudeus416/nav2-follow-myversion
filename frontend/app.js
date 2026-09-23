@@ -170,6 +170,10 @@ async function refreshPreview() {
   } finally { previewBusy = false; setTimeout(refreshPreview, 500); }
 }
 function showStatus(s) {
+  window.dispatchEvent(new CustomEvent('nav2-map-control', {detail: {
+    enabled: Boolean(s.nav2_enabled) && ['map','both'].includes(s.nav2_obstacle_mode),
+    stopped: Boolean(s.force_stopped)
+  }}));
   motionStatus = s;
   syncRadarControls();
   const identityEnabled = Boolean(s.follow_settings.persistent_identity_enabled);
@@ -217,6 +221,28 @@ function showStatus(s) {
   $('cameraForm').querySelector('button').disabled = !s.camera_process_running;
   if (s.device_mode === 'external') $('deviceMessage').textContent = '摄像头由其他终端启动；设备启动和停止需在该终端操作。';
   $('modeStatus').textContent = s.force_stopped ? '强制停止' : s.motion_mode === 'manual' ? '手动运行' : s.following ? '自动跟随中' : '自动待机';
+  $('motionReason').textContent = `控制状态：${s.motion_reason || '等待更新'}`;
+  $('navLastStop').textContent = s.nav2_last_stop_reason ? `最近一次导航停止（${s.nav2_last_stop_age} 秒前）：${s.nav2_last_stop_reason}` : '暂无导航停止记录';
+  const modeNames = {radar: '雷达', map: '静态地图', both: '雷达＋静态地图'};
+  $('navObstacleMode').textContent = `障碍来源：${s.nav2_enabled ? (modeNames[s.nav2_obstacle_mode] || '雷达') : 'Nav2 未启用'}（切换需重启服务）`;
+  $('visionLayerState').textContent = s.nav2_vision_enabled ? `视觉障碍层：已启用 · 数据年龄 ${s.nav2_vision_age} 秒 · 候选点 ${s.nav2_vision_points} · ${s.nav2_vision_error || '正在更新（单目估计）'}` : '视觉障碍层：未启用；独立视觉预览不会自动开启避障';
+  const pt = s.preview_target;
+  if (!$('navTargetId').dataset.edited && document.activeElement !== $('navTargetId')) {
+    $('navTargetId').value = s.follow_settings.target_id;
+  }
+  $('navTargetState').textContent = `当前目标 ID：${s.follow_settings.target_id} · 当前画面人物 ID：${(s.visible_people || []).map(p => p.id).join('、') || '暂无'}`;
+  if (pt) {
+    const age = v => v === null ? '无数据' : `${v.toFixed(3)} 秒`;
+    $('previewTarget').textContent = `目标 ID ${pt.target_id} · 最新跟踪：${pt.visible_in_latest_tracking ? '可见' : '不可见'} · 最近导航距离：${pt.last_distance_m === null ? '无数据' : pt.last_distance_m.toFixed(2) + ' m'} · 跟踪延迟：${age(pt.tracking_age)} · 距离/方位延迟：${age(pt.measurement_age)} · 停车预览有效期：${pt.timeout.toFixed(3)} 秒。${pt.ready ? '目标测量满足预览条件' : pt.problems.join('；')}`;
+  }
+  $('previewPath').disabled = !s.nav2_enabled || !s.force_stopped || s.radar_reconfiguring || s.nav2_preview?.state === 'pending';
+  if (s.nav2_preview) {
+    $('previewStatus').textContent = s.nav2_preview.message + (s.nav2_preview.state === 'ready' ? `（${s.nav2_preview.age.toFixed(1)} 秒前，30 秒后隐藏，请重新预览）` : '');
+  }
+  window.dispatchEvent(new CustomEvent('nav2-preview', {detail: s.nav2_preview || null}));
+  if (s.nav2_enabled && s.motion_mode === 'auto') {
+    $('modeStatus').textContent += ` · Nav2 ${s.nav2_error || (s.nav2_goal_active ? '绕行跟随中' : '等待目标')}`;
+  }
   $('targetStatus').textContent = s.target_visible ? `ID ${s.follow_settings.target_id} · ${s.target_distance_m === null ? '距离未知' : `${s.target_distance_m.toFixed(2)} m`}` : `ID ${s.follow_settings.target_id} · 丢失/未出现`;
   const identityLabels = {
     disabled: '已关闭', waiting_target: '等待目标出现', tracked: '身份稳定',
@@ -307,6 +333,33 @@ async function loadSelectedConfig() {
     $('configMessage').textContent = `已应用 ${name}`;
   } catch (error) { $('configMessage').textContent = error.message; }
 }
+$('navTargetId').addEventListener('input', () => { $('navTargetId').dataset.edited = 'true'; });
+$('navTargetForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const value = $('navTargetId').value.trim();
+  const targetId = Number(value);
+  if (!value || !Number.isSafeInteger(targetId) || targetId < 0) {
+    $('navTargetMessage').textContent = '请输入大于或等于 0 的整数 ID。';
+    return;
+  }
+  $('navTargetApply').disabled = true;
+  try {
+    const response = await fetch('/api/status');
+    if (!response.ok) throw new Error('无法读取当前跟随设置，请稍后重试');
+    const status = await response.json();
+    const settings = await post('/api/follow/settings', { ...status.follow_settings, target_id: targetId });
+    followValues.target_id = settings.target_id;
+    $('target_id').value = settings.target_id;
+    delete $('navTargetId').dataset.edited;
+    $('navTargetMessage').textContent = `已选择人物 ID ${settings.target_id}，未启动跟随。`;
+    $('previewRequestError').textContent = '';
+    await refreshStatus();
+  } catch (error) {
+    $('navTargetMessage').textContent = `选择失败：${error.message}`;
+  } finally {
+    $('navTargetApply').disabled = false;
+  }
+});
 async function applyFollow() {
   followValues = await post('/api/follow/settings', formConfig().follow);
   updatePersistentIdentityButton(Boolean(followValues.persistent_identity_enabled));
@@ -445,6 +498,17 @@ $('loadConfig').addEventListener('click', async () => {
   await loadSelectedConfig();
 });
 $('refreshFrames').addEventListener('click', refreshFrames);
+$('previewPath').addEventListener('click', async () => {
+  $('previewPath').disabled = true;
+  $('previewRequestError').textContent = '';
+  try {
+    const result = await post('/api/nav2/preview');
+    $('previewStatus').textContent = result.message;
+    window.dispatchEvent(new CustomEvent('nav2-preview', {detail: result}));
+  } catch (error) {
+    $('previewRequestError').textContent = `上次点击预览被拒绝：${error.message}`;
+  }
+});
 $('refreshProcessed').addEventListener('click', refreshFrames);
 window.addEventListener('beforeunload', () => { stopManual(); if (previewUrl) URL.revokeObjectURL(previewUrl); });
 (async () => {

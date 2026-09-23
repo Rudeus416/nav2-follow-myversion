@@ -38,6 +38,90 @@ class FakeNode:
 
 
 class RadarFollowTests(unittest.TestCase):
+    def test_nav_stale_measurement_holds_then_cancels_without_extending_deadline(self):
+        from unittest.mock import Mock
+        m = control.MotionManager.__new__(control.MotionManager)
+        m.navigation = Mock()
+        m.settings = control.FollowSettings()
+        m.estop = False
+        m.mode = 'auto'
+        m.following = m.target_visible = True
+        m.target_distance = 2.0
+        m.tracking_seen_at = m.distance_seen_at = 10.0
+        m.handle_nav_measurement_pause(11.3)
+        m.navigation.hold_for_visual_update.assert_called_once()
+        m.navigation.stop.assert_not_called()
+        m.handle_nav_measurement_pause(12.01)
+        m.navigation.stop.assert_called_once()
+        m.navigation.reset_mock()
+        m.target_visible = False
+        m.handle_nav_measurement_pause(11.3)
+        m.navigation.stop.assert_called_once()
+        m.navigation.hold_for_visual_update.assert_not_called()
+
+    def test_nav2_visual_timeout_is_independent_of_ordinary_follow(self):
+        motion = control.MotionManager.__new__(control.MotionManager)
+        motion.settings = control.FollowSettings()
+        motion.navigation = None
+        self.assertAlmostEqual(motion.target_timeout(), 0.6)
+        motion.navigation = object()
+        self.assertEqual(motion.target_timeout(), 1.2)
+        self.assertLess(0.866, motion.target_timeout())
+        self.assertGreater(1.201, motion.target_timeout())
+        self.assertAlmostEqual(motion.command_timeout(), 0.6)
+
+    def test_preview_requires_stop_and_fresh_target(self):
+        import time
+        from unittest.mock import Mock
+        motion = control.MotionManager.__new__(control.MotionManager)
+        motion.lock = threading.RLock()
+        motion.navigation = Mock()
+        motion.navigation.status.return_value = {'nav2_preview': {'state': 'pending'}}
+        motion.settings = control.FollowSettings()
+        motion.radar_reconfiguring = False
+        motion.estop = False
+        with self.assertRaisesRegex(Exception, '强制停止'):
+            motion.preview_path()
+        motion.navigation.preview_path.assert_not_called()
+        motion.estop = True
+        motion.target_visible = True
+        motion.tracking_seen_at = time.monotonic()
+        motion.nav_measurement = (3, 0, time.monotonic()-10)
+        with self.assertRaisesRegex(Exception, '超时'):
+            motion.preview_path()
+        motion.navigation.preview_path.assert_not_called()
+        motion.tracking_seen_at = time.monotonic() - 1.168
+        motion.nav_measurement = (3, 0, time.monotonic() - 1.168)
+        self.assertEqual(motion.preview_path()['state'], 'pending')
+        motion.navigation.preview_path.assert_called_once_with(3, 0, motion.settings.follow_distance_m)
+        self.assertTrue(motion.estop)
+
+    def test_preview_diagnostics_distinguishes_visibility_missing_and_stale_data(self):
+        motion = control.MotionManager.__new__(control.MotionManager)
+        motion.settings = control.FollowSettings()
+        motion.target_visible = True
+        motion.tracking_seen_at = 9.9
+        motion.nav_measurement = (1.89, 0, 7.9)
+        d = motion.preview_target_diagnostics(10)
+        self.assertEqual(len(d['problems']), 1)
+        self.assertIn('距离/方位数据超时', d['problems'][0])
+        self.assertEqual(d['last_distance_m'], 1.89)
+        motion.nav_measurement = None
+        self.assertIn('同帧', motion.preview_target_diagnostics(10)['problems'][0])
+        motion.nav_measurement = (1.89, 0, 9.9)
+        motion.target_visible = False
+        self.assertIn('不可见', motion.preview_target_diagnostics(10)['problems'][0])
+        motion.target_visible = True
+        self.assertTrue(motion.preview_target_diagnostics(10)['ready'])
+        motion.tracking_seen_at = 8.0
+        motion.nav_measurement = (1.89, 0, 8.0)
+        self.assertTrue(motion.preview_target_diagnostics(10)['ready'])
+        self.assertEqual(motion.preview_target_diagnostics(10)['timeout'], 2.0)
+        self.assertAlmostEqual(motion.command_timeout(), 0.6)
+        d = motion.preview_target_diagnostics(10.001)
+        self.assertFalse(d['ready'])
+        self.assertEqual(len(d['problems']), 2)
+
     def test_projection_uses_optical_axes_horizontal_distance_and_distortion(self):
         k = np.array([[100., 0., 50.], [0., 100., 50.], [0., 0., 1.]])
         matrix = transform_matrix(0, 0, 0, 0, 0, 0)
@@ -151,6 +235,7 @@ class RadarFollowTests(unittest.TestCase):
                                     else np.empty((0, 3))))
         used_by_pid = []
         motion = SimpleNamespace(lock=threading.RLock(), following=True, mode="auto", estop=False,
+                                 navigation=None,
                                  update_measurement=lambda *_args: True)
         pid = SimpleNamespace(yaw=0., reset=lambda: None, reset_distance=lambda: None,
                               update_distance=lambda target, *_args: used_by_pid.append(target.distance) or .1)

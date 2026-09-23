@@ -6,6 +6,9 @@
   <title>visual_car · 行人跟随控制</title>
   <link rel="stylesheet" href="/assets/style.css">
   <script src="/assets/app.js" defer></script>
+  <script src="/assets/obstacle-map.js" defer></script>
+  <script src="/assets/virtual-wall.js" defer></script>
+  <script src="/assets/route-preview.js" defer></script>
 </head>
 <body>
   <main>
@@ -96,7 +99,90 @@
       <div class="preview-caption">左侧为图像、人物检测框与雷达点云投影，右侧为同帧深度图。点云按最近时间戳选取；默认仅保存在内存，开启落盘后写入 data 目录。</div>
     </section>
 
+    <section class="card panel obstacle-map-panel">
+      <div class="section-heading">
+        <h2>地图与导航路线</h2>
+        <button id="mapReset" type="button" class="secondary">重置视图</button>
+      </div>
+      <p class="hint">俯视图 · 蓝色箭头为小车当前位置与朝向，蓝框为车身，绿色实线为导航路线，青色虚线为停车预览路线，橙色点为雷达。静态地图黑色为墙、浅色为空地；无静态地图时显示红色障碍与紫色膨胀区。静态地图朝上显示，车位由里程计估计。</p>
+      <div class="nav-wall-layout">
+      <div class="obstacle-map-view">
+        <label>缩放 <input id="mapZoom" type="range" min="0.5" max="4" step="0.1" value="1"></label>
+        <label><input id="mapShowInflation" type="checkbox" checked> 显示紫色缓冲区（仅显示）</label>
+        <p class="hint">取消仅隐藏紫色图层，导航安全缓冲仍有效。</p>
+        <label><input id="inflationEnabled" type="checkbox" disabled> 启用导航缓冲区（实际参与规划）</label>
+        <label>缓冲半径：<output id="inflationRadiusValue">0.45 米</output>
+          <input id="inflationRadius" type="range" min="0" max="1.5" step="0.05" value="0.45" disabled>
+        </label>
+        <button id="inflationApply" type="button" disabled>应用缓冲设置（需强停）</button>
+        <p id="inflationMessage" class="message">关闭将停用膨胀层；障碍物本体与车身碰撞检查仍保留。</p>
+        <script src="/assets/nav2-inflation.js" defer></script>
+        <canvas id="obstacleMap" width="900" height="600" aria-label="局部障碍地图"></canvas>
+        <p id="mapPathValidity" class="message" role="status" hidden style="color:#f87171;font-weight:600"></p>
+      </div>
+      <div class="virtual-wall-view">
+        <label><input id="wallEnabled" type="checkbox"> 启用禁入区相机预览（停车）</label>
+        <div id="wallControls" hidden>
+          <label>相机高度（米）<input id="wallCameraHeight" type="number" min="0.05" max="3" step="0.01" value="0.5"></label>
+          <label>相机向下俯角（度）<input id="wallPitch" type="number" min="-60" max="60" step="1" value="0"></label>
+          <label>虚拟墙高度（米）<input id="wallHeight" type="number" min="0.1" max="3" step="0.1" value="0.8"></label>
+          <img id="wallImage" alt="虚拟墙相机预览：红色手绘禁区和黄色视觉障碍" hidden>
+          <p class="hint">仅叠加已应用的手绘禁入区域。默认高度和俯角需实测确认，安装横滚暂按 0；这是近似对齐预览，不是实时障碍检测。原相机画面不变，解除强停后暂停。</p>
+        </div>
+        <p id="wallMessage" class="message" role="status"></p>
+      </div>
+      </div>
+      <label><input id="navVisionEnabled" type="checkbox"> 启用视觉障碍检测（参与导航避障）</label>
+      <label><input id="yellowWallEnabled" type="checkbox" disabled> 显示视觉障碍黄色虚拟墙（停车预览）</label>
+      <p id="yellowWallMessage" class="message">开启视觉障碍检测后可勾选；黄色墙叠加在右侧同一个虚拟墙相机窗口。</p>
+      <p id="navVisionToggleMessage" class="message">强停后可切换；下方疑似障碍预览仅控制图像显示。</p>
+      <script src="/assets/nav2-vision-toggle.js" defer></script>
+      <p id="visionLayerState" class="message" role="status"></p>
+      <p id="navObstacleMode" class="message" role="status"></p>
+      <p id="mapStatus" class="message" role="status">等待地图数据；需启用 Nav2。</p>
+      <div id="pointPreviewPanel" hidden>
+        <button id="pointPick" type="button" class="secondary">选取路线终点</button>
+        <button id="pointPreview" type="button" disabled>预览选点路线</button>
+        <button id="pointStart" type="button" disabled>开始行驶到终点（解除强停）</button>
+        <button id="pointStop" type="button" class="secondary">停止终点导航</button>
+        <p id="pointMessage" class="message">选取终点仅用于停车路径预览，不执行运动。</p>
+        <label><input id="visionPreviewEnabled" type="checkbox"> 前方疑似障碍预览（待校验）</label>
+        <label>相机高度（米）<input id="visionHeight" type="number" min="0.05" max="3" step="0.01" value="0.5"></label>
+        <label>向下俯角（度）<input id="visionPitch" type="number" min="-60" max="60" value="0"></label>
+        <label>深度比例（待标定）<input id="visionScale" type="number" min="0.05" max="10" step="0.05" value="1"></label>
+        <img id="visionPreviewImage" alt="独立的前方疑似障碍预览" hidden style="max-width:100%">
+        <p id="visionPreviewMessage" class="message">橙色为单目深度估计的疑似近距区域，不代表已确认障碍；无橙色也不能证明通道安全。此勾选仅控制预览显示，导航视觉障碍层由启动参数独立开启。</p>
+      </div>
+      <div id="mapEditor" hidden>
+        <div class="actions">
+          <label>绘制工具<select id="mapDrawTool"><option value="brush">自由画笔</option><option value="rectangle">矩形</option></select></label>
+          <label>笔宽<select id="mapBrushWidth"><option value="1">1 格</option><option value="3" selected>3 格</option><option value="5">5 格</option></select></label>
+          <button id="mapEditToggle" type="button" class="secondary">绘制阻挡区</button>
+          <button id="mapEditApply" type="button" disabled>应用阻挡区</button>
+          <button id="mapEditDiscard" type="button" class="secondary" disabled>取消框选</button>
+          <button id="mapEditUndo" type="button" class="secondary" disabled>撤销上一块</button>
+          <button id="mapEditClear" type="button" class="secondary" disabled>清空新增区域</button>
+        </div>
+        <p class="hint">先强停，再开启绘制，用鼠标或手指连续绘画或拖出矩形，再点击应用。每笔单独应用；撤销上一块可撤销整笔。当前地图每格 5 厘米。黑色新增区域会参与规划并保存；撤销和清空不会删除原地图墙体。应用后请重新预览路线。</p>
+        <p id="mapEditMessage" class="message" role="status"></p>
+      </div>
+      <form id="navTargetForm">
+        <label>避障跟踪 ID<input id="navTargetId" type="number" min="0" step="1" value="0" required></label>
+        <button id="navTargetApply" type="submit" class="secondary">选择目标 ID</button>
+      </form>
+      <p id="navTargetState" class="message" role="status">等待人物编号…</p>
+      <p id="navTargetMessage" class="message" role="status"></p>
+      <p class="hint">输入画面中自己的 ID，应用到停车预览及后续跟随；与原跟随目标共用同一 ID，选择按钮不会启动跟随或解除强停。</p>
+      <button id="previewPath" type="button" class="secondary" disabled>停车预览路径</button>
+      <p id="navLastStop" class="message" role="status"></p>
+      <p id="previewTarget" class="message" role="status">等待预览目标状态…</p>
+      <p id="previewRequestError" class="error" role="alert"></p>
+      <p id="previewStatus" class="message" role="status">保持强停，识别目标后可预览；青色虚线仅为预览，不执行运动。</p>
+      <p class="hint">此区域仅供观察，点击地图不会发送运动目标。过期图层会隐藏。</p>
+    </section>
+
     <section class="card panel motion-panel">
+      <p id="motionReason" class="message" role="status">等待控制状态…</p>
       <div class="section-heading">
         <div><h2>运动控制</h2><p class="hint">自动跟随按所选 ID 保持距离和图像居中；目标丢失立即发送零速度。</p></div>
         <button id="forceStop" type="button" class="danger">强制停止</button>
