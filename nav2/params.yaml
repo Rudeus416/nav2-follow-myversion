@@ -1,4 +1,9 @@
+# 【内容标注】用途：Nav2 规划器、控制器与代价地图参数。
+# 对应用户需求：R01 R13 R14 R19 R22（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：配置自有整车规划/评价插件、车身轮廓、速度/进展检查和障碍图层。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 # ROS 2 Humble. Measure footprint and radar->base_link TF before enabling.
+# 【参数分区】行为树与动作依赖；对应 R13/R14，执行限速相关见 R19。
 bt_navigator:
   ros__parameters:
     global_frame: odom
@@ -12,6 +17,7 @@ bt_navigator:
       - nav2_follow_path_action_bt_node
       - nav2_rate_controller_bt_node
       - nav2_pipeline_sequence_bt_node
+# 【参数分区】路径跟踪、进展检查、速度与整车轨迹评价；对应 R13/R14，执行限速相关见 R19。
 controller_server:
   ros__parameters:
     controller_frequency: 20.0
@@ -34,11 +40,11 @@ controller_server:
       plugin: dwb_core::DWBLocalPlanner
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.3
+      max_vel_x: 0.18
       max_vel_y: 0.0
-      max_vel_theta: 0.5
+      max_vel_theta: 0.4
       min_speed_xy: 0.0
-      max_speed_xy: 0.3
+      max_speed_xy: 0.18
       min_speed_theta: 0.0
       acc_lim_x: 0.3
       acc_lim_y: 0.0
@@ -55,8 +61,9 @@ controller_server:
       transform_tolerance: 0.2
       trans_stopped_velocity: 0.03
       short_circuit_trajectory_evaluation: true
-      critics: [RotateToGoal, Oscillation, ObstacleFootprint, PathAlign, PathDist, GoalDist]
-      ObstacleFootprint.scale: 10.0
+      critics: [WholeBody, RotateToGoal, Oscillation, PathAlign, PathDist, GoalDist]
+      WholeBody.class: visual_car_nav2::WholeBodyCritic
+      WholeBody.scale: 1.0
       PathAlign.scale: 12.0  # softer path alignment; collision checks unchanged
       PathAlign.forward_point_distance: 0.1
       PathDist.scale: 24.0
@@ -64,26 +71,17 @@ controller_server:
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
+# 【参数分区】自有整车全局规划搜索参数；对应 R13/R14，执行限速相关见 R19。
 planner_server:
   ros__parameters:
     expected_planner_frequency: 0.0  # on-demand planning, no periodic rate expected
     planner_plugins: [GridBased]
     GridBased:
-      # Heading-aware search checks the rectangular costmap footprint, not only a center point.
-      plugin: nav2_smac_planner/SmacPlannerHybrid
-      tolerance: 0.15
-      allow_unknown: false
-      downsample_costmap: false
-      angle_quantization_bins: 72
-      motion_model_for_search: DUBIN
-      minimum_turning_radius: 0.4  # provisional conservative value; validate on chassis
-      max_iterations: 1000000
-      max_on_approach_iterations: 1000
-      max_planning_time: 2.0
-      analytic_expansion_ratio: 3.5
-      analytic_expansion_max_length: 1.6
-      cost_penalty: 2.0
-      smooth_path: false
+      # Project-local SE(2) search: filled footprint AND swept turns are checked.
+      plugin: visual_car_nav2::Planner
+      minimum_turning_radius: 0.4  # provisional; validate on chassis
+      max_planning_time: 3.0
+# 【参数分区】局部障碍、车身与紫色缓冲；对应 R13/R14，执行限速相关见 R19。
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -123,10 +121,12 @@ local_costmap:
           obstacle_max_range: 5.0
           raytrace_min_range: 0.15
           raytrace_max_range: 5.0
+      # Purple cells are hard forbidden to the entire padded footprint.
       inflation:
-        plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.45
-        cost_scaling_factor: 3.0
+        plugin: visual_car_nav2::HardBuffer
+        enabled: true
+        inflation_radius: 0.0
+# 【参数分区】全局规划障碍、车身与紫色缓冲；对应 R13/R14，执行限速相关见 R19。
 global_costmap:
   global_costmap:
     ros__parameters:
@@ -136,6 +136,8 @@ global_costmap:
       publish_frequency: 2.0
       transform_tolerance: 0.2
       rolling_window: true
+      # 雷达模式保持此窗口；map/both 启动时按真实地图扩大全局范围
+      # （当前 corridor 为 18×10m），并发布完整全局快照；局部窗口不变。
       width: 10
       height: 10
       resolution: 0.05
@@ -166,7 +168,8 @@ global_costmap:
           obstacle_max_range: 5.0
           raytrace_min_range: 0.15
           raytrace_max_range: 5.0
+      # Purple cells are hard forbidden to the entire padded footprint.
       inflation:
-        plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.45
-        cost_scaling_factor: 3.0
+        plugin: visual_car_nav2::HardBuffer
+        enabled: true
+        inflation_radius: 0.0

@@ -1,0 +1,112 @@
+/* 【内容标注 / R27 R28 R29】仅自有 Nav2 面板内的响应式布局。
+ * 每条选择器限定 #nav2Panel，不改变原视频、强停、设备、手动或整页样式。
+ * R27 整理按钮网格、字段和标题间距；R28/R29 增加双轴地图平移控件及仅查看时的拖动样式。
+ */
+#nav2Panel { --nav2-border: #344761; min-width: 0; }
+#nav2Panel > .section-heading { align-items: center; flex-wrap: wrap; gap: 12px; }
+#nav2Panel > .section-heading h2 { margin: 0; }
+#nav2Panel [hidden] { display: none !important; }
+#nav2Panel .nav2-overview,
+#nav2Panel .nav2-workflows,
+#nav2Panel .nav2-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  min-width: 0;
+  margin-top: 18px;
+}
+#nav2Panel .nav2-overview > *,
+#nav2Panel .nav2-workflows > *,
+#nav2Panel .nav2-settings > * { min-width: 0; max-width: 100%; }
+#nav2Panel .nav2-card {
+  padding: 16px; border: 1px solid var(--nav2-border); border-radius: 12px; background: #142035;
+}
+#nav2Panel .nav2-heading { margin-bottom: 14px; }
+#nav2Panel .nav2-heading h3 { margin: 0; font-size: 17px; line-height: 1.5; }
+#nav2Panel .nav2-heading .hint { margin: 4px 0 0; }
+#nav2Panel .obstacle-map-view { width: 100%; max-width: none; margin: 0; }
+/* 等比缩放，不给 canvas 加 padding/border，不改原 .editing 的触摸行为。 */
+#nav2Panel #obstacleMap { display: block; width: 100%; max-width: 100%; height: auto; margin: 12px 0; }
+#nav2Panel .nav2-map { scroll-margin-top: 16px; }
+#nav2Panel .nav2-toolbar label { min-width: 0; }
+/* R28/R29：查看时支持单指上下左右拖图；选点/绘制仍由地图脚本处理，不影响面板外页面滚动。 */
+#nav2Panel #obstacleMap.pan-ready { touch-action: none; cursor: grab; }
+#nav2Panel #obstacleMap.panning { cursor: grabbing; }
+#nav2Panel .nav2-pan-control { margin-top: 8px; }
+#nav2Panel .nav2-pan-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+#nav2Panel .nav2-pan-caption label { margin: 0; }
+#nav2Panel .nav2-pan-caption output { color: #a7b8ce; font-size: 13px; white-space: nowrap; }
+#nav2Panel .nav2-pan-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 10px; align-items: center; }
+#nav2Panel .nav2-pan-row button { width: 44px; padding: 6px; font-size: 20px; }
+#nav2Panel .nav2-feeds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+#nav2Panel .nav2-feed { min-width: 0; overflow: hidden; border: 1px solid var(--nav2-border); border-radius: 10px; background: #0e192b; }
+#nav2Panel .nav2-feed-title { margin: 0; padding: 10px 12px; font-size: 14px; line-height: 1.5; background: #1b2a40; }
+#nav2Panel .nav2-feed-controls { display: grid; align-content: start; gap: 8px; padding: 8px 12px; min-height: 112px; }
+#nav2Panel .nav2-feed-body { background: #090f1b; }
+#nav2Panel .nav2-feed-body > img { display: block; width: 100%; height: 180px; min-height: 0; object-fit: contain; }
+#nav2Panel .nav2-placeholder { display: grid; align-content: center; min-height: 180px; margin: 0; padding: 16px; text-align: center; color: #a7b8ce; font-size: 13px; }
+#nav2Panel .nav2-feed > .message { padding: 0 10px 10px; }
+#nav2Panel .nav2-media > details,
+#nav2Panel .nav2-media > section { margin-top: 12px; }
+#nav2Panel .nav2-actions { display: flex; align-items: stretch; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+#nav2Panel .nav2-actions > button { flex: 1 1 140px; min-width: min(140px, 100%); max-width: 100%; }
+/* 人物三步等宽排列；选点四按钮固定两列，避免最后一个按钮独占宽行。
+ * 人物容器原有内联 flex 布局，仅在该自有容器内覆盖为 grid。
+ */
+#nav2Panel #nav2PersonPanel > .nav2-actions {
+  display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch !important;
+}
+#nav2Panel #pointPreviewPanel > .nav2-actions {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+#nav2Panel #nav2PersonPanel > .nav2-actions > button,
+#nav2Panel #pointPreviewPanel > .nav2-actions > button { width: 100% !important; min-width: 0; min-height: 48px; padding: 10px 12px; }
+#nav2Panel #nav2PersonPanel > .nav2-check { margin: 8px 0; }
+#nav2Panel #navTargetForm { margin: 0 0 12px; }
+#nav2Panel #wallControls {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px;
+}
+#nav2Panel #wallControls > h4,
+#nav2Panel #wallControls > .hint { grid-column: 1 / -1; margin: 0; }
+#nav2Panel .nav2-details-body > h4 { margin: 0; }
+#nav2Panel .nav2-details-body > .nav2-fields { margin: 0; }
+
+#nav2Panel .nav2-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; align-items: end; margin: 12px 0; }
+#nav2Panel .nav2-fields > *,
+#nav2Panel label { min-width: 0; }
+#nav2Panel .nav2-check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; margin: 0; padding: 9px 0; line-height: 1.55; cursor: pointer; }
+#nav2Panel input[type="checkbox"] { flex: 0 0 18px; width: 18px !important; height: 18px; min-height: 18px; margin: 2px 0 0; padding: 0; accent-color: #68b3ff; }
+#nav2Panel input:not([type="checkbox"]):not([type="range"]),
+#nav2Panel select { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; }
+#nav2Panel input[type="range"] { width: 100%; min-width: 0; min-height: 44px; margin: 0; padding: 6px 0; border: 0; background: transparent; accent-color: #68b3ff; }
+#nav2Panel button { min-height: 44px; max-width: 100%; line-height: 1.45; white-space: normal; }
+#nav2Panel .nav2-details { padding: 0; border: 1px solid var(--nav2-border); border-radius: 10px; background: #142035; min-width: 0; }
+#nav2Panel .nav2-details > summary { min-height: 48px; padding: 12px 14px; font-weight: 650; line-height: 1.5; cursor: pointer; }
+#nav2Panel .nav2-details[open] > summary { border-bottom: 1px solid var(--nav2-border); }
+#nav2Panel .nav2-details-body { display: grid; gap: 12px; padding: 14px; min-width: 0; }
+#nav2Panel .nav2-details-body .actions { flex-wrap: wrap; align-items: end; gap: 10px; }
+#nav2Panel .nav2-details-body .actions > label { flex: 1 1 140px; }
+#nav2Panel .hint,
+#nav2Panel .message,
+#nav2Panel .error { max-width: 100%; line-height: 1.6; overflow-wrap: anywhere; font-size: 13px; }
+#nav2Panel .hint { margin: 8px 0 12px; color: #a7b8ce; }
+#nav2Panel .message,
+#nav2Panel .error { margin: 10px 0 0; }
+#nav2Panel .message:empty,
+#nav2Panel .error:empty { display: none; }
+#nav2Panel :is(button, input, select, summary):focus-visible { outline: 3px solid #a7d5ff; outline-offset: 3px; }
+@media (max-width: 900px) {
+  #nav2Panel .nav2-overview,
+  #nav2Panel .nav2-workflows { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 540px) {
+  #nav2Panel .nav2-feeds,
+  #nav2Panel .nav2-settings { grid-template-columns: minmax(0, 1fr); }
+  #nav2Panel .nav2-feed-controls { min-height: 0; }
+  #nav2Panel .nav2-actions > button { flex-basis: calc(50% - 5px); min-width: 0; padding: 10px; }
+  #nav2Panel .nav2-actions > button:first-child { flex-basis: 100%; }
+  #nav2Panel #nav2PersonPanel > .nav2-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #nav2Panel #nav2PersonPanel > .nav2-actions > button:first-child { grid-column: 1 / -1; }
+  #nav2Panel .nav2-card { padding: 12px; }
+}

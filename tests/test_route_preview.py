@@ -1,3 +1,7 @@
+# 【内容标注】用途：导航相关已有回归：test_route_preview。
+# 对应用户需求：R02 R03 R08 R11 R13 R22（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：与导航功能相关的离线回归；关联这些需求不表示整份测试最初都由本轮创建。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 import unittest
 import numpy as np
 from nav2.route_preview import candidates

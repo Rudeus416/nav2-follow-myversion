@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
+# 【内容标注】用途：单地图模式的外侧禁区边框。
+# 对应用户需求：R04（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：在原图四周外侧增加一格占用，并按地图朝向平移原点，保留内部净空间。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 """Map-only navigation boundary, independent of editable and vision layers."""
 import copy
 import math
 
 
+# 【职责 / R04】boundary_grid：仅向原图外侧添加一格禁区，原内部占用保持不变。
 def boundary_grid(source):
     """One occupied cell outside each original edge; preserve all interior space."""
     result = copy.deepcopy(source)
@@ -23,6 +28,7 @@ def boundary_grid(source):
     return result
 
 
+# 【职责 / R04】main：创建外边界 ROS 发布节点。
 def main():
     import rclpy
     from rclpy.executors import ExternalShutdownException
@@ -33,6 +39,7 @@ def main():
     node = Node('visual_car_map_boundary')
     qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
     publisher = node.create_publisher(OccupancyGrid, '/visual_car/map_boundary', qos)
+    # 【职责 / R04】receive：接到编辑图后生成并发布对应外边框。
     def receive(msg):
         result = boundary_grid(msg)
         result.header.stamp = node.get_clock().now().to_msg()

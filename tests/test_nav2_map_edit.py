@@ -1,3 +1,7 @@
+# 【内容标注】用途：导航相关已有回归：test_nav2_map_edit。
+# 对应用户需求：R02 R03 R08 R11 R13 R22（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：与导航功能相关的离线回归；关联这些需求不表示整份测试最初都由本轮创建。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 import tempfile
 import unittest
 from pathlib import Path
@@ -88,7 +92,7 @@ class MapEditApiTests(unittest.TestCase):
         motion = NS(lock=threading.RLock(), estop=False,
                     navigation=NS(obstacle_mode='map', clear_preview=Mock()))
         view = Mock()
-        with patch.object(control, 'make_app', return_value=FastAPI()), patch.object(control, 'ConfigurationStore'):
+        with patch.object(control, 'make_app', return_value=FastAPI()), patch.object(control, 'ConfigurationStore'), patch('nav2.route_preview.attach'):
             app = control.build_app(None, None, None, None, None, motion, view)
         endpoint = next(r.endpoint for r in app.routes if r.path == '/api/nav2/map-edit')
         payload = dict(action='add', rect=[1, 1, 2, 2], base_id='test', revision=1)

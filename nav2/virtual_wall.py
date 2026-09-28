@@ -1,3 +1,7 @@
+# 【内容标注】用途：红黄虚拟墙相机叠加。
+# 对应用户需求：R05 R06（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：投影手绘边界和视觉候选到同一相机预览；保持原相机视频功能独立。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 """Read-only, stationary camera overlay for user-painted map boundaries."""
 import math
 import cv2
@@ -8,6 +12,7 @@ from fastapi import HTTPException, Query
 from fastapi.responses import Response
 
 
+# 【职责 / R05 R06】boundary_edges：提取禁区栅格的外边缘，减少内部重复墙面。
 def boundary_edges(shapes):
     cells = set()
     for shape in shapes:
@@ -27,6 +32,7 @@ def boundary_edges(shapes):
     return edges
 
 
+# 【职责 / R05 R06】clip_near：裁剪相机近面后的线段，避免无效投影。
 def clip_near(points, near=.1):
     result=[]
     for a,b in zip(points, points[1:]+points[:1]):
@@ -37,6 +43,7 @@ def clip_near(points, near=.1):
     return result
 
 
+# 【职责 / R05 R06】render：将三维虚拟墙投影并叠加到相机快照。
 def render(image, shapes, grid, robot, mount, height, pitch, wall_height, calibration, fill_color=(80,80,255), edge_color=(50,50,230)):
     k=np.array(calibration['camera_matrix']['data'],float).reshape(3,3)
     k[0,:]*=image.shape[1]/calibration['image_width']
@@ -47,6 +54,7 @@ def render(image, shapes, grid, robot, mount, height, pitch, wall_height, calibr
     cx=rx+math.cos(yaw)*mx-math.sin(yaw)*my
     cy=ry+math.sin(yaw)*mx+math.cos(yaw)*my
     camera_yaw=yaw+myaw; p=math.radians(pitch)
+    # 【职责 / R05 R06】camera：取得用于停车叠加预览的相机数据。
     def camera(cell,z):
         gx,gy=cell[0]*grid['resolution'],cell[1]*grid['resolution']; g=grid['yaw']
         x=grid['origin'][0]+math.cos(g)*gx-math.sin(g)*gy-cx
@@ -70,7 +78,24 @@ def render(image, shapes, grid, robot, mount, height, pitch, wall_height, calibr
     return result
 
 
+# 【职责 / R05 R06】draw_objects：绘制视觉语义物体的辅助标注。
+def draw_objects(image, objects):
+    result=image.copy()
+    h,w=result.shape[:2]
+    for obj in objects:
+        polygon=np.clip(np.asarray(obj['polygon'],float),0,1)
+        pixels=np.minimum(polygon*[w,h],[w-1,h-1]).astype(np.int32)
+        if len(pixels)<3:continue
+        cv2.polylines(result,[pixels],True,(255,220,0),2)
+        x,y=pixels.min(axis=0)
+        cv2.putText(result,f"{obj['label']} {obj['confidence']:.2f}",(int(x),max(15,int(y))),
+                    cv2.FONT_HERSHEY_SIMPLEX,.5,(255,220,0),1,cv2.LINE_AA)
+    return result
+
+
+# 【职责 / R05 R06】attach：注册本模块专用接口与依赖，复用既有应用，不修改原业务实现。
 def attach(app, bridge, motion, view):
+    # 【职责 / R05 R06】preview：在同一快照中叠加红色禁区和黄色视觉候选。
     @app.get('/api/nav2/virtual-wall')
     def preview(camera_height: float=Query(.5,ge=.05,le=3),
                 pitch_down: float=Query(0,ge=-60,le=60),
@@ -93,12 +118,7 @@ def attach(app, bridge, motion, view):
         try:
             image=cv2.imdecode(np.frombuffer(jpeg,np.uint8),cv2.IMREAD_COLOR)
             if image is None:raise ValueError('相机图像解码失败')
-            if image.shape[1]>960:
-                image=cv2.resize(image,(960,round(image.shape[0]*960/image.shape[1])))
-            calibration=yaml.safe_load((Path(__file__).resolve().parent.parent/'camera_calibration.yaml').read_text())
-            result=image
-            if red:
-                result=render(result,snapshot['editing']['rectangles'],grid,robot,mount,camera_height,pitch_down,wall_height,calibration)
+            objects=[]
             if vision:
                 import time
                 with nav.lock:
@@ -107,15 +127,34 @@ def attach(app, bridge, motion, view):
                         raise HTTPException(409,'请先开启视觉障碍检测')
                     if nav.vision_at<=0 or time.monotonic()-nav.vision_at>1.2:
                         raise HTTPException(409,'视觉障碍数据过期，隐藏黄色墙')
-                    cells=list(layer.cells)
-                    camera_height,pitch_down=layer.height,layer.pitch
-                # Cells are the actual selected visual candidate in odom, not static walls.
+                    visual_snapshot=(list(layer.camera_cells),bool(layer.diagnostics.get('camera_only',False)),layer.height,layer.pitch)
+                    packet=getattr(layer,'semantic_preview',None)
+                    if packet and time.monotonic()-packet['source_at']<=1.2:
+                        # Use segmentation's exact original frame and pose, never
+                        # paint an old object mask onto a newer video frame.
+                        image=packet['image'].copy();robot=packet['robot'];objects=packet['objects']
+            if image.shape[1]>960:
+                image=cv2.resize(image,(960,round(image.shape[0]*960/image.shape[1])))
+            calibration=yaml.safe_load((Path(__file__).resolve().parent.parent/'camera_calibration.yaml').read_text())
+            result=image
+            yellow_count=0;camera_only=False
+            if red:
+                result=render(result,snapshot['editing']['rectangles'],grid,robot,mount,camera_height,pitch_down,wall_height,calibration)
+            if vision:
+                import time
+                cells,camera_only,camera_height,pitch_down=visual_snapshot
+                yellow_count=len(cells)
+                # Map candidate when available; otherwise explicitly labelled camera-only candidate.
                 visual_grid={'resolution':.05,'origin':[0.,0.],'yaw':0.}
                 result=render(result,[{'cells':cells}],visual_grid,robot,mount,
                               camera_height,pitch_down,wall_height,calibration,
                               fill_color=(0,220,255),edge_color=(0,180,255))
+            if objects:result=draw_objects(result,objects)
             ok,encoded=cv2.imencode('.jpg',result,[cv2.IMWRITE_JPEG_QUALITY,80])
             if not ok:raise ValueError('预览编码失败')
-            return Response(encoded.tobytes(),media_type='image/jpeg',headers={'Cache-Control':'no-store'})
+            return Response(encoded.tobytes(),media_type='image/jpeg',headers={'Cache-Control':'no-store',
+                'X-Yellow-Wall-Count':str(yellow_count),
+                'X-Semantic-Count':str(len(objects)),
+                'X-Yellow-Camera-Only':'1' if camera_only else '0'})
         except (ValueError,KeyError,OSError,cv2.error) as exc:
             raise HTTPException(422,str(exc)) from exc

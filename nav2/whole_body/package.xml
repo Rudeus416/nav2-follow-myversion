@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!--
+【内容标注】用途：自有整车插件构建与注册。
+对应用户需求：R13 R23（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+添加/修改逻辑：声明依赖、构建/安装或插件注册；具体见本文件指令，不改系统 Nav2 源码。
+本次仅加注释；需求关联不是精确创建/提交记录。
+-->
+<package format="3"><name>visual_car_whole_body</name><version>0.1.0</version><description>Project-local whole-body planning and hard clearance.</description><maintainer email="local@example.com">visual_car</maintainer><license>Apache-2.0</license><buildtool_depend>ament_cmake</buildtool_depend><depend>nav2_core</depend><depend>nav2_costmap_2d</depend><depend>dwb_core</depend><depend>pluginlib</depend><depend>ompl</depend><depend>libopencv-dev</depend><export><build_type>ament_cmake</build_type></export></package>

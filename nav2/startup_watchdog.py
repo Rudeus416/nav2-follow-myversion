@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
+# 【内容标注】用途：Nav2 启动进度监测。
+# 对应用户需求：R21（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：观察启动进度并限制无进展等待，输出失败诊断；具体首次新增轮次无法从对话确认。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 """Bounded, read-only startup monitor; retain Nav2's lifecycle/bond manager."""
 import time
 
 
+# 【职责 / R21】Progress：Nav2 启动进度监测的状态封装；各方法职责见下方标注。
 class Progress:
+    # 【职责 / R21】__init__：初始化本类依赖与状态；副作用以原初始化语句为准。
     def __init__(self, now, timeout=25.):
         self.signature=None
         self.changed=now
         self.timeout=timeout
 
+    # 【职责 / R21】observe：比较本次节点状态签名；有变化重置计时，否则判断是否超过无进展期限。
     def observe(self, states, now):
         signature=tuple(states)
         if signature!=self.signature:
@@ -17,6 +24,7 @@ class Progress:
         return now-self.changed>=self.timeout
 
 
+# 【职责 / R21】main：只读轮询导航节点生命周期状态，保留原生命周期管理器并诊断无进展。
 def main():
     import rclpy
     from rclpy.executors import ExternalShutdownException

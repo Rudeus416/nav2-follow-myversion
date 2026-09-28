@@ -1,10 +1,16 @@
+// 【内容标注】用途：停车视觉疑似障碍预览面板。
+// 对应用户需求：R08（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+// 添加/修改逻辑：停车时拉取预览；切换状态后丢弃旧请求和图像 URL。
+// 本次仅加注释；需求关联不是精确创建/提交记录。
 (() => {
  const el=id=>document.getElementById(id), image=el('visionPreviewImage'), toggle=el('visionPreviewEnabled');
  let url=null, generation=0;
+ // 【职责 / R08】clear：隐藏图像并释放对象 URL。
  function clear(){image.hidden=true;image.removeAttribute('src');if(url)URL.revokeObjectURL(url);url=null;}
  for(const id of ['visionPreviewEnabled','visionHeight','visionPitch','visionScale'])el(id).addEventListener('change',()=>{generation++;clear();});
  window.addEventListener('nav2-map-control',e=>{if(!e.detail.enabled || !e.detail.stopped){toggle.checked=false;generation++;clear();}});
  document.addEventListener('visibilitychange',()=>{generation++;clear();});
+ // 【职责 / R08】refresh：异步刷新本面板数据，处理过期响应及资源清理。
  async function refresh(){
   const token=generation;
   try {

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
+# 【内容标注】用途：静态地图启动就绪检查。
+# 对应用户需求：R01 R21（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：等待地图相关服务和节点就绪，失败退出以阻止不完整导航启动。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 """Bounded map lifecycle startup; reconcile state after a lost response."""
 import os
 import time
 
 
+# 【职责 / R21】main：在总时限内读取并推进 map_server 生命周期，等待 map/edited_map/边界图就绪后退出。
 def main():
     import rclpy
     from lifecycle_msgs.srv import GetState, ChangeState
@@ -24,6 +29,7 @@ def main():
         qos) for topic in topics]
     deadline = time.monotonic() + 45
     attempted = set()
+    # 【职责 / R21】call：有限等待生命周期服务；响应丢失返回空值，由外层重新查询真实状态。
     def call(client, request):
         if not client.wait_for_service(timeout_sec=1.):
             return None

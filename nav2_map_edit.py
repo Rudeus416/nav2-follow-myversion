@@ -1,3 +1,7 @@
+# 【内容标注】用途：手绘禁区存储与静态地图合成。
+# 对应用户需求：R03 R04（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：校验矩形/笔画及地图版本，把禁区叠加到原地图，支持撤销和清除。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 """Compose user rectangles with an immutable occupancy map; persist separately."""
 import copy
 import hashlib
@@ -7,7 +11,9 @@ import threading
 from pathlib import Path
 
 
+# 【职责 / R03 R04】MapEdits：手绘禁区存储与静态地图合成的状态封装；各方法职责见下方标注。
 class MapEdits:
+    # 【职责 / R03 R04】__init__：初始化本类依赖与状态；副作用以原初始化语句为准。
     def __init__(self, directory):
         self.directory = Path(directory)
         self.lock = threading.RLock()
@@ -16,6 +22,7 @@ class MapEdits:
         self.rectangles = []
         self.revision = 0
 
+    # 【职责 / R03 R04】validate：校验禁区数据格式、尺寸和索引范围。
     def validate(self, rect):
         if isinstance(rect, dict):
             cells = rect.get('cells')
@@ -34,6 +41,7 @@ class MapEdits:
             raise ValueError('阻挡区超出地图或面积为零')
         return rect
 
+    # 【职责 / R03 R04】set_base：绑定底图身份，处理地图变化后的编辑状态。
     def set_base(self, msg):
         with self.lock:
             info = msg.info
@@ -58,11 +66,13 @@ class MapEdits:
             self.base_id = key
             self.revision += 1
 
+    # 【职责 / R03 R04】state：返回编辑版本及禁区列表。
     def state(self):
         with self.lock:
             return dict(ready=bool(self.base_id), base_id=self.base_id,
                         revision=self.revision, rectangles=copy.deepcopy(self.rectangles))
 
+    # 【职责 / R03 R04】compose：把保存的禁区合成到原始静态图。
     def compose(self):
         with self.lock:
             if not self.base_id:
@@ -80,6 +90,7 @@ class MapEdits:
             msg.data = data
             return msg
 
+    # 【职责 / R03 R04】edit：执行增加、撤销或清除，并更新编辑状态。
     def edit(self, action, rect, base_id, revision):
         with self.lock:
             if not self.base_id or base_id != self.base_id or revision != self.revision:

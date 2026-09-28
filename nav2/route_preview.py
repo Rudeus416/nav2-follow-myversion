@@ -1,3 +1,7 @@
+# 【内容标注 / R32：遇障后保持同一终点绕行】用途：选点规划与视觉预览接口集合。
+# 对应用户需求：R02 R08 R11 R13 R26（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：接入共用整车校验器、人物接口和人工选点；生成停车视觉预览候选。
+# 需求关联用于追溯用途，不代表精确创建/提交记录；后续自检修复见 nav2/AUDIT.md。
 """Stage-one map target and visual obstacle preview; never executes motion."""
 import math
 import time
@@ -9,6 +13,7 @@ from fastapi import HTTPException, Query
 from fastapi.responses import Response
 
 
+# 【职责 / R02 R08 R11 R13】candidates：生成停车视觉预览候选，不代表已批准运动。
 def candidates(depth, k, distortion, image_shape, height, pitch, scale):
     h,w=image_shape[:2]
     values=cv2.resize(np.squeeze(depth).astype(np.float32),(80,60),interpolation=cv2.INTER_NEAREST)*scale
@@ -28,31 +33,77 @@ def candidates(depth, k, distortion, image_shape, height, pitch, scale):
     return kept, nearest
 
 
+# 【职责 / R13 R20 R22】validate_route_snapshot：静态已知域与全局代价图共同校验整条路线。
+def validate_route_snapshot(path, snapshot):
+    from nav2.clearance_worker import validate_isolated
+    layers=snapshot['layers']
+    robot=layers.get('robot');foot=layers.get('footprint')
+    if not robot or robot['stale'] or not foot or foot['stale']:
+        raise ValueError('等待新鲜车身轮廓和位姿，不能确认路径可通行')
+    global_map=layers.get('global_map')
+    if not global_map or global_map.get('stale'):
+        # Do not fall back to the local window or an empty map. Missing/stale
+        # global data means the remote part of the planned route is unverified.
+        raise ValueError('全局代价地图未就绪或已过期，保持停车，请等待地图更新后重新预览')
+    a=robot['yaw'];c,s=math.cos(a),math.sin(a)
+    footprint=(np.asarray(foot['points'])-robot['position'])@np.array([[c,-s],[s,c]])
+    # R20/R22: checking the WHOLE route against the 10 m local window rejected
+    # valid far goals even after the planner's global window was enlarged.
+    # The full global map includes static/hand-drawn, vision/radar and purple
+    # layers. The static map separately constrains the observed map extent;
+    # enlarging a costmap must never make space outside that extent pass here.
+    # DWB keeps its unchanged local costmap and real-time whole-body veto.
+    validate_isolated(path,[layers.get('static_map'),global_map],footprint)
+
+
+# 【职责 / R20 R22】route_snapshot：给规划结束后的全局地图发布一次有限追赶机会。
+def route_snapshot(view, wait_seconds=.8):
+    # Whole-body planning holds the global costmap mutex. A long search may end
+    # just before the next 2 Hz full-map publication. Wait outside motion/nav
+    # locks for fresh data; never increase the map/vision age allowance or use
+    # stale data. The caller rechecks task generation and motion authorization.
+    deadline=time.monotonic()+wait_seconds
+    while True:
+        snapshot=view.snapshot(include_global=True)
+        global_map=snapshot['layers'].get('global_map')
+        if global_map and not global_map.get('stale'):
+            return snapshot
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            return snapshot  # validate_route_snapshot will reject it explicitly.
+        time.sleep(min(.05,remaining))
+
+
+# 【职责 / R02 R08 R11 R13】attach：注册本模块专用接口与依赖，复用既有应用，不修改原业务实现。
 def attach(app, engine, motion, view):
     from nav2.vision_toggle import attach as attach_toggle
     attach_toggle(app, engine, motion)
     from nav2.inflation_control import attach as attach_inflation
     attach_inflation(app, motion)
+    # 【职责 / R13 R20 R22】整路线使用完整全局代价图；局部图继续供 DWB 实时碰撞检查。
     def validate_preview(path):
         if motion.navigation.obstacle_mode not in ('map','both'):
             return
-        from nav2.path_clearance import validate_path
-        snapshot=view.snapshot()
-        robot=snapshot['layers'].get('robot');foot=snapshot['layers'].get('footprint')
-        if not robot or robot['stale'] or not foot or foot['stale']:
-            raise ValueError('等待新鲜车身轮廓和位姿，不能确认路径可通行')
-        a=robot['yaw'];c,s=math.cos(a),math.sin(a)
-        footprint=(np.asarray(foot['points'])-robot['position'])@np.array([[c,-s],[s,c]])
-        validate_path(path,snapshot['layers'].get('static_map'),footprint)
+        validate_route_snapshot(path, route_snapshot(view))
     motion.navigation.validate_preview=validate_preview
+    motion.navigation.person_motion=motion
+    # R32: read-only global-map and full-vision providers for fixed-endpoint recovery.
+    from nav2.replan_support import attach as attach_replan_support
+    attach_replan_support(motion.navigation, view)
+    from nav2.continuous_segment import attach as attach_continuous_segment
+    app.add_event_handler('shutdown', attach_continuous_segment(motion))
+    from nav2.person_map import attach as attach_person_map
+    attach_person_map(app,engine,motion)
     selection={}
     from nav2.point_navigation import attach as attach_point_navigation
     attach_point_navigation(app, motion, view, selection)
+    # 【职责 / R02 R08 R11 R13】allowed：限制选点与视觉校验的模式和强停条件。
     def allowed():
         if not motion.estop:raise HTTPException(409,'先强停再进行选点及视觉校验')
         if motion.navigation is None or motion.navigation.obstacle_mode not in ('map','both'):
             raise HTTPException(409,'请启用地图或叠加模式')
 
+    # 【职责 / R02 R08 R11 R13】point_preview：校验人工终点与地图版本，保存预览身份。
     @app.post('/api/nav2/point-preview')
     def point_preview(payload: dict):
         with motion.lock:
@@ -78,6 +129,7 @@ def attach(app, engine, motion, view):
                 selection.clear()
             return motion.navigation.status()['nav2_preview']
 
+    # 【职责 / R02 R08 R11 R13】vision_preview：生成停车状态下的视觉候选预览图。
     @app.get('/api/nav2/vision-obstacle-preview')
     def vision_preview(camera_height:float=Query(.5,ge=.05,le=3),
                        pitch_down:float=Query(0,ge=-60,le=60),

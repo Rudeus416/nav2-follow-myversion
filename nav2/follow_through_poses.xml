@@ -1,3 +1,9 @@
+<!--
+【内容标注】用途：多位姿行为树。
+对应用户需求：R11 R13（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+添加/修改逻辑：组织多位姿路线规划和执行；当前是否调用取决于所用导航动作。
+本次仅加注释；需求关联不是精确创建/提交记录。
+-->
 <!-- Humble initializes both navigators; keep both trees free of recovery servers. -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">

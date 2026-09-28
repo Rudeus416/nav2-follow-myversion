@@ -1,4 +1,8 @@
-"""Read-only ROS snapshots for the browser's odom-frame obstacle view."""
+# 【内容标注】用途：网页所需地图与机器人图层快照。
+# 对应用户需求：R02 R03 R22 R26（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：订阅地图/轮廓/雷达/路径并转换坐标；局部供网页，全局按需供整路线校验。
+# 需求关联用于功能追溯，不是精确创建/提交记录。
+"""Read-only odom snapshots: local browser view and opt-in global validation."""
 import math
 import threading
 import time
@@ -6,7 +10,9 @@ import os
 from pathlib import Path
 
 
+# 【职责 / R02 R03 R22】ObstacleView：网页所需地图与机器人图层快照的状态封装；各方法职责见下方标注。
 class ObstacleView:
+    # 【职责 / R02 R03 R22】__init__：初始化本类依赖与状态；副作用以原初始化语句为准。
     def __init__(self, node, radar_topic):
         from geometry_msgs.msg import PolygonStamped
         from nav_msgs.msg import OccupancyGrid, Path as NavPath
@@ -39,10 +45,16 @@ class ObstacleView:
             node.create_subscription(PointCloud2, radar_topic, self.radar, qos_profile_sensor_data),
         ]
         if self.editor is not None:
-            self.subscriptions.append(node.create_subscription(OccupancyGrid, '/map', self.static_grid, map_qos))
+            self.subscriptions.extend([
+                node.create_subscription(OccupancyGrid, '/map', self.static_grid, map_qos),
+                node.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.global_grid, map_qos),
+                node.create_subscription(OccupancyGridUpdate, '/global_costmap/costmap_updates',
+                                         self.update_global_grid, 10),
+            ])
         self.retry_timer = node.create_timer(0.02, self.retry_points)
         self.pose_timer = node.create_timer(0.2, self.refresh_pose)
 
+    # 【职责 / R02 R03 R22】static_grid：接收静态地图并关联编辑数据。
     def static_grid(self, msg):
         if getattr(self, 'editor', None) is not None:
             try:
@@ -56,6 +68,7 @@ class ObstacleView:
         self.static_message = msg
         self.refresh_pose()
 
+    # 【职责 / R02 R03 R22】publish_edited_map：发布手绘禁区合成后的图层。
     def publish_edited_map(self, msg):
         msg.header.stamp = self.node.get_clock().now().to_msg()
         self.edited_publisher.publish(msg)
@@ -65,6 +78,7 @@ class ObstacleView:
             self.layers.pop('path', None)
         self.refresh_pose()
 
+    # 【职责 / R02 R03 R22】edit_map：处理编辑动作并更新发布结果。
     def edit_map(self, action, rect, base_id, revision):
         if self.editor is None:
             raise ValueError('仅静态地图或叠加模式支持编辑')
@@ -73,6 +87,7 @@ class ObstacleView:
             self.publish_edited_map(msg)
             return self.editor.state()
 
+    # 【职责 / R02 R03 R22】refresh_pose：读取机器人位姿和相关坐标变换。
     def refresh_pose(self):
         from rclpy.time import Time
         def yaw(q):
@@ -111,44 +126,79 @@ class ObstacleView:
                 self.layers.pop('static_map', None)
                 self.errors['static_map'] = str(exc)
 
+    # 【职责 / R02 R03 R22】store：以层名保存新快照及时间。
     def store(self, name, header, data):
         stamp = header.stamp.sec + header.stamp.nanosec * 1e-9
         self.layers[name] = dict(data, stamp=stamp, received=time.monotonic())
         self.errors.pop(name, None)
 
+    # 【职责 / R02 R03 R22】grid：接收网页局部代价地图；与全局层独立保存。
     def grid(self, msg):
+        self._grid('map', msg)
+
+    # 【职责 / R13 R22】global_grid：接收后端整条路线校验所需的全局代价地图。
+    def global_grid(self, msg):
+        self._grid('global_map', msg)
+
+    def _grid(self, name, msg):
+        """Shared validation, independent layer keys; never mutate old snapshots."""
         with self.lock:
             if msg.header.frame_id != 'odom':
-                self.layers.pop('map', None)
-                self.errors['map'] = '地图坐标系不是 odom，无法叠加显示'
+                self.layers.pop(name, None)
+                self.errors[name] = '地图坐标系不是 odom，无法叠加显示或校验'
                 return
             info = msg.info
-            if not (0 < info.width * info.height <= 1000000 and info.resolution > 0
-                    and len(msg.data) == info.width * info.height):
-                self.layers.pop('map', None)
-                self.errors['map'] = '地图尺寸无效或超过显示上限'
-                return
             q = info.origin.orientation
-            self.store('map', msg.header, dict(width=info.width, height=info.height,
+            geometry = (info.resolution, info.origin.position.x, info.origin.position.y,
+                        q.x, q.y, q.z, q.w)
+            if not (info.width > 0 and info.height > 0
+                    and info.width * info.height <= 1000000 and info.resolution > 0
+                    and len(msg.data) == info.width * info.height
+                    and all(math.isfinite(v) for v in geometry)
+                    and all(-1 <= value <= 100 for value in msg.data)):
+                self.layers.pop(name, None)
+                self.errors[name] = '地图尺寸或数据无效，或超过栅格上限'
+                return
+            self.store(name, msg.header, dict(width=info.width, height=info.height,
                 resolution=info.resolution, origin=[info.origin.position.x, info.origin.position.y],
                 yaw=math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z)), data=list(msg.data)))
 
+    # 【职责 / R02 R03 R22】update_grid：更新网页局部层，不修改全局图层。
     def update_grid(self, msg):
+        self._update_grid('map', msg)
+
+    # 【职责 / R13 R22】update_global_grid：仅更新后端全局层。
+    def update_global_grid(self, msg):
+        self._update_grid('global_map', msg)
+
+    def _update_grid(self, name, msg):
         with self.lock:
-            grid = self.layers.get('map')
-            if grid is None or msg.header.frame_id != 'odom':
+            if msg.header.frame_id != 'odom':
+                self.layers.pop(name, None)
+                self.errors[name] = '地图增量坐标系不是 odom，等待完整地图'
                 return
-            if (msg.x + msg.width > grid['width'] or msg.y + msg.height > grid['height']
-                    or len(msg.data) != msg.width * msg.height):
-                self.errors['map'] = '地图增量尺寸不匹配，等待完整地图'
-                self.layers.pop('map', None)
+            grid = self.layers.get(name)
+            if grid is None:
+                return
+            if (msg.x < 0 or msg.y < 0 or msg.width <= 0 or msg.height <= 0
+                    or msg.x + msg.width > grid['width'] or msg.y + msg.height > grid['height']
+                    or len(msg.data) != msg.width * msg.height
+                    or not all(-1 <= value <= 100 for value in msg.data)):
+                self.errors[name] = '地图增量尺寸或数据不匹配，等待完整地图'
+                self.layers.pop(name, None)
+                return
+            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            if stamp > 0 and grid['stamp'] > 0 and stamp < grid['stamp']:
+                # A late patch from before the current full map must not overwrite
+                # newer geometry/data or refresh the current snapshot's age.
                 return
             data = grid['data'].copy()
             for row in range(msg.height):
                 start = (msg.y + row) * grid['width'] + msg.x
                 data[start:start + msg.width] = msg.data[row*msg.width:(row+1)*msg.width]
-            self.store('map', msg.header, dict(grid, data=data))
+            self.store(name, msg.header, dict(grid, data=data))
 
+    # 【职责 / R02 R03 R22】points：转换路径/轮廓等点序列。
     def points(self, name, header, points, received=None):
         received = time.monotonic() if received is None else received
         try:
@@ -180,12 +230,14 @@ class ObstacleView:
                 self.layers.pop(name, None)
                 self.errors[name] = str(exc)
 
+    # 【职责 / R02 R03 R22】retry_points：坐标变换恢复后重试尚未转换的点。
     def retry_points(self):
         with self.lock:
             pending = list(self.pending.items())
         for name, (header, points, received) in pending:
             self.points(name, header, points, received)
 
+    # 【职责 / R02 R03 R22】radar：将雷达数据变换为显示点。
     def radar(self, msg):
         now = time.monotonic()
         if now - self.radar_at < 0.5:
@@ -205,7 +257,8 @@ class ObstacleView:
                 self.layers.pop('radar', None)
                 self.errors['radar'] = str(exc)
 
-    def snapshot(self):
+    # 【职责 / R02 R03 R22】snapshot：生成各图层年龄、过期标记和错误信息。
+    def snapshot(self, include_global=False):
         now = time.monotonic()
         ros_now = self.node.get_clock().now().nanoseconds * 1e-9
         editor = getattr(self, 'editor', None)
@@ -213,9 +266,15 @@ class ObstacleView:
         with self.lock:
             layers = {}
             for name, value in self.layers.items():
+                # Browser calls keep their original local payload size. Only
+                # the backend full-route validator opts into global occupancy.
+                if name == 'global_map' and not include_global:
+                    continue
                 receipt_age = now - value['received']
                 stamp_age = ros_now - value['stamp'] if value['stamp'] > 0 else receipt_age
                 age = receipt_age if name == 'static_map' else max(receipt_age, stamp_age)
                 layers[name] = {**value, 'age': round(age, 2), 'stale': age > 3 or stamp_age < -0.1}
-            return {'frame': 'odom', 'layers': layers, 'errors': dict(self.errors),
+            errors = {name: value for name, value in self.errors.items()
+                      if include_global or name != 'global_map'}
+            return {'frame': 'odom', 'layers': layers, 'errors': errors,
                     'editing': edit_state}

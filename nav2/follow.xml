@@ -1,3 +1,9 @@
+<!--
+【内容标注】用途：单终点行为树。
+对应用户需求：R11 R18（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+添加/修改逻辑：组织计算路线与跟随路线的动作；参数和 Python 接入共同决定使用方式。
+本次仅加注释；需求关联不是精确创建/提交记录。
+-->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <Sequence name="FollowStablePath">

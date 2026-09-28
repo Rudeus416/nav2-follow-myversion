@@ -1,0 +1,11 @@
+<!--
+【内容标注】用途：自有整车插件构建与注册。
+对应用户需求：R13 R23（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+添加/修改逻辑：声明依赖、构建/安装或插件注册；具体见本文件指令，不改系统 Nav2 源码。
+本次仅加注释；需求关联不是精确创建/提交记录。
+-->
+<library path="visual_car_whole_body">
+<class type="visual_car_nav2::Planner" base_class_type="nav2_core::GlobalPlanner"><description>SE2 search with swept filled footprint collision checks.</description></class>
+<class type="visual_car_nav2::HardBuffer" base_class_type="nav2_costmap_2d::Layer"><description>Optional hard buffer displayed as purple.</description></class>
+<class type="visual_car_nav2::WholeBodyCritic" base_class_type="dwb_core::TrajectoryCritic"><description>Reject any trajectory sweeping over occupied or buffered cells.</description></class>
+</library>

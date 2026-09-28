@@ -1,3 +1,7 @@
+# 【内容标注】用途：导航相关已有回归：test_nav2_follow。
+# 对应用户需求：R02 R03 R08 R11 R13 R22（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 添加/修改逻辑：与导航功能相关的离线回归；关联这些需求不表示整份测试最初都由本轮创建。
+# 本次仅加注释；需求关联不是精确创建/提交记录。
 """Offline geometry and asynchronous stop-race regression tests."""
 import math
 import threading
@@ -55,6 +59,7 @@ class NavigationTests(unittest.TestCase):
         n.client = Mock()
         n.handle = Mock()
         n.goal = (2, 0, 0)
+        n.person_anchor = (3, 0)
         n.goal_at = 0
         for now, distance in [(3, 3.1), (3.3, 3.2), (3.6, 3.1), (3.9, 6), (4.2, 3.1)]:
             with patch('nav2_follow.time.monotonic', return_value=now):
@@ -71,7 +76,9 @@ class NavigationTests(unittest.TestCase):
         n = self.follower()
         n.healthy_pose = lambda: (0, 0, 0)
         n.command = (0.8, -0.9)
-        self.assertEqual(n.velocity(), (0.15, -0.4))
+        v,w=n.velocity()
+        self.assertAlmostEqual(v,0.18)
+        self.assertAlmostEqual(w,-0.2025)
         n.command_at = time.monotonic() - 0.4
         self.assertEqual(n.velocity(), (0.0, 0.0))
 
@@ -135,7 +142,7 @@ class NavigationTests(unittest.TestCase):
 
     def test_preview_failure_explains_failure_and_clears_path(self):
         n = self.preview_follower()
-        n._preview_result(done(SimpleNamespace(status=6, result=SimpleNamespace(error_code=208))), 0)
+        n._validate_preview_result(done(SimpleNamespace(status=6, result=SimpleNamespace(error_code=208))), 0)
         self.assertEqual(n.preview['state'], 'error')
         self.assertIn('208', n.preview['message'])
         self.assertEqual(n.preview['points'], [])
@@ -143,7 +150,7 @@ class NavigationTests(unittest.TestCase):
     def test_old_preview_cannot_overwrite_new_result(self):
         n = self.preview_follower()
         n.preview_sequence = 2
-        n._preview_result(done(SimpleNamespace(status=6)), 1)
+        n._validate_preview_result(done(SimpleNamespace(status=6)), 1)
         self.assertEqual(n.preview['state'], 'idle')
 
     def test_camera_mount_offset_and_turn(self):
@@ -177,7 +184,9 @@ class NavigationTests(unittest.TestCase):
     def test_command_timeout_and_sensor_failure_stop(self):
         n = self.follower()
         n.healthy_pose = lambda: (0, 0, 0)
-        self.assertEqual(n.velocity(), (0.15, 0.1))
+        v,w=n.velocity()
+        self.assertAlmostEqual(v,0.18)
+        self.assertAlmostEqual(w,0.09)
         n.command_at -= 1
         self.assertEqual(n.velocity(), (0, 0))
         n.command_at = time.monotonic()
