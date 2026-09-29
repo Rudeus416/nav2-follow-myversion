@@ -60,7 +60,7 @@ class PersonNavigation:
                 # A failed cancel transport must never prevent local stop/invalidation.
                 self.message = '人物导航已停止；规划取消通信失败，迟到结果将丢弃'
 
-    # 【R31】锁定段只检查授权身份，不再把人物短暂不可见当成路线失效。
+    # 【职责 / R31】locked_segment_error：只检查锁定段授权身份，不把人物短暂不可见当成路线失效。
     def locked_segment_error(self):
         segment = self.locked_segment
         if segment is None or segment.get('finished'):
@@ -79,7 +79,7 @@ class PersonNavigation:
             return '人物相机流状态不可用，停止历史路线'
         return ''
 
-    # 【R31】单次任务终态撤销 following；ROS 回调持 nav 锁时不反向获取 motion 锁。
+    # 【职责 / R31】finish_locked_segment：单次终态撤销 following；ROS 回调持导航锁时不反向获取运动锁。
     def finish_locked_segment(self):
         segment = self.locked_segment
         if segment is None or segment.get('finished'):
@@ -93,6 +93,7 @@ class PersonNavigation:
         if motion is None:
             return
         authorization = getattr(motion, '_nav2_follow_authorization', 0)
+        # 【职责 / R31】finish：按正常锁顺序结束单次历史人物授权，迟到清理不能覆盖新会话。
         def finish():
             # Normal lock order, never publish or start another action. A later
             # explicit historical start replaces the token. The instance adapter

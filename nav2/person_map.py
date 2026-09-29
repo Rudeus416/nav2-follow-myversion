@@ -92,10 +92,12 @@ class LatestPersonPoint:
     valid when observed. Polling and explicit planning never renew source_at.
     Selection/config/stream changes discard the old identity's point.
     """
+    # 【职责 / R33】LatestPersonPoint.__init__：初始化所选 ID/相机作用域的不限时最近世界点。
     def __init__(self):
         self.key = None
         self.point = None
 
+    # 【职责 / R33】LatestPersonPoint.update：只由真实新观测更新历史点；身份改变即丢弃旧点。
     def update(self, people, key, now=None):
         # The owning routes serialize this cache under motion/nav locks.
         now = time.monotonic() if now is None else now

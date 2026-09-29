@@ -41,6 +41,7 @@ def _checked_state(motion, stream_key, sequence, continuous):
     return marker, path
 
 
+# 【职责 / R30 R31】readiness：只读报告开始追踪的共同前置条件，不授权或发送运动。
 def readiness(motion, people, stream_key, sequence, continuous=False):
     """Report whether a start may be submitted, without authorizing movement.
 

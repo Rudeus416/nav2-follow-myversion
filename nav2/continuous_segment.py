@@ -10,6 +10,7 @@ so they need this narrowly scoped instance adapter. No alternate velocity publis
 """
 
 
+# 【职责 / R18 R22 R31 R32】attach：安装连续/历史人物段的暂停适配器，并返回可逆清理入口。
 def attach(motion):
     """Install once and return a cleanup callback restoring the original hook."""
     existing = getattr(motion, '_nav2_continuous_pause_close', None)
@@ -23,12 +24,14 @@ def attach(motion):
     # R31: record only a successful explicit follow operation, atomically with
     # its original stop/reset. Estop/release also clears preview but is not a
     # new follow session. No control state or original return value is replaced.
+    # 【职责 / R31】set_following：在原跟随切换成功时递增授权代次，供迟到回调失效判断。
     def set_following(enabled):
         with motion.lock:
             result = original_follow(enabled)
             motion._nav2_follow_authorization += 1
             return result
 
+    # 【职责 / R18 R22 R31 R32】pause：固定已授权路线；遇传感器或障碍故障仍按原安全门控停车。
     def pause(now):
         nav = motion.navigation
         # Preserve motion -> nav lock order used by the original control loop.
@@ -75,6 +78,7 @@ def attach(motion):
                 return
             return original(now)
 
+    # 【职责 / R22】close：仅在仍持有适配器时恢复原暂停和跟随方法。
     def close():
         with motion.lock:
             if motion.handle_nav_measurement_pause is pause:

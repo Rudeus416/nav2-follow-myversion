@@ -1,3 +1,4 @@
+# 【内容标注 / R37】验证视觉配置代次、并发失效与可逆关闭；仅离线测试，不连接小车。
 """Generation safety without waiting for the processing/fusion engine lock."""
 import threading
 import unittest

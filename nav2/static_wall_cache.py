@@ -4,11 +4,14 @@
 import numpy as np
 
 
+# 【职责 / R35】StaticWallCache：缓存相同静态墙的栅格化结果，视觉点仍逐帧叠加。
 class StaticWallCache:
+    # 【职责 / R35】__init__：初始化空键和值；不预取地图或续期证据。
     def __init__(self):
         self._key=None
         self._data=None
 
+    # 【职责 / R35】raster：地图内容、几何、TF 或边界变化才重建，并向调用方返回可写副本。
     def raster(self, shape, origin, resolution, grid, transform, boundary=False):
         """Return a writable copy, invalidating on content/geometry/TF changes.
 

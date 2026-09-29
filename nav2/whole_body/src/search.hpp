@@ -12,6 +12,7 @@
 namespace visual_car_nav2 {
 // 输入：带障碍/紫色的代价地图、完整车身、起终点、转弯半径、时间/节点预算。
 // 输出：按行驶顺序排列的密集位姿；无已验证解时抛出异常，不回退到中心线。
+// 【职责 / R13 R14】search：在 x/y/yaw 空间扩展前进原语，只返回逐段通过整车扫掠复核的路线。
 inline std::vector<Pose> search(Collision &collision,Pose start,Pose goal,double turning,double seconds,int limit){
  if(!collision.free(start))throw std::runtime_error("Start footprint touches obstacle, buffer or map edge");
  if(!collision.free(goal))throw std::runtime_error("Goal footprint touches obstacle, buffer or map edge");

@@ -51,6 +51,7 @@ class DepthMailbox:
                 return None
             return record
 
+    # 【职责 / R35】arrival：返回该结果真实接收时刻，只供分段诊断，不替代采集时间。
     def arrival(self, record):
         """R35: receipt timing only, never a replacement for capture time."""
         with self._lock:

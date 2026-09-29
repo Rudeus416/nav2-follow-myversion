@@ -1,3 +1,4 @@
+# 【内容标注 / R38】验证最近深度碎片优化与旧选择结果等价；仅离线测试，不连接小车。
 """Fragment-selection equivalence, including interpolation and threshold edges."""
 import statistics
 import time

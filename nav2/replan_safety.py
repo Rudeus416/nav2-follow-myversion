@@ -30,6 +30,7 @@ _POINT_MARGIN = 1e-6
 _MAX_SAMPLES = 20000
 
 
+# 【职责 / R32 R40】_PreparedGeometry：保存与源数组分离、只读的同帧障碍格和车身几何。
 @dataclass(frozen=True)
 class _PreparedGeometry:
     """Frame-local validated geometry, with immutable detached array storage."""
@@ -38,6 +39,7 @@ class _PreparedGeometry:
     radius: float
 
 
+# 【职责 / R32 R40】prepare_geometry：一次性校验并冻结全量视觉格与车身，供多次检查复用。
 def prepare_geometry(points_world, footprint):
     """Prepare one immutable visual snapshot for repeated geometric checks.
 
@@ -56,6 +58,7 @@ def prepare_geometry(points_world, footprint):
     return _PreparedGeometry(centers, corners, radius)
 
 
+# 【职责 / R32 R40】_inputs：校验原始或已准备几何，并把视觉点保守量化为完整 5 cm 方格。
 def _inputs(points_world, footprint):
     """Return occupied-cell centers and a convex, padded footprint, or fail."""
     if isinstance(points_world, _PreparedGeometry):
@@ -88,6 +91,7 @@ def _inputs(points_world, footprint):
     return centers, corners, radius
 
 
+# 【职责 / R32】_pose：拒绝维度错误或非有限的平面车位。
 def _pose(value):
     p = np.asarray(value, dtype=float)
     if p.shape != (3,) or not np.isfinite(p).all():
@@ -95,12 +99,14 @@ def _pose(value):
     return p
 
 
+# 【职责 / R32】_polygon：把底盘轮廓按给定平面位姿变换到世界坐标。
 def _polygon(corners, pose):
     x, y, angle = pose
     c, s = math.cos(angle), math.sin(angle)
     return corners @ np.array([[c, s], [-s, c]]) + [x, y]
 
 
+# 【职责 / R32 R40】_clear_polygon：以向量化 SAT 检查完整方格与车身多边形，接触即碰撞。
 def _clear_polygon(polygon, centers, margin):
     """Vectorized SAT against complete square cells; touching is collision."""
     if not len(centers):
@@ -124,6 +130,7 @@ def _clear_polygon(polygon, centers, margin):
     return bool(np.all(separated.any(axis=1)))
 
 
+# 【职责 / R32】_hull：在局部原点计算相邻车身轮廓凸包，降低大坐标浮点误差。
 def _hull(first, second):
     # Recentering prevents float32 hull rounding from swallowing thin obstacles
     # when odom/world origins are large. All collision projections use float64.
@@ -132,6 +139,7 @@ def _hull(first, second):
     return cv2.convexHull((joined-origin).astype(np.float32)).reshape(-1, 2).astype(float)+origin
 
 
+# 【职责 / R32 R40】_trajectory_clear：预算内检查整段平移和转弯扫掠，保守筛除明确在范围外的格。
 def _trajectory_clear(poses, centers, corners, radius, center_sagitta=None):
     """Check full swept polygons; linear center interpolation for planned paths.
 
@@ -200,6 +208,7 @@ def _trajectory_clear(poses, centers, corners, radius, center_sagitta=None):
     return True
 
 
+# 【职责 / R32】_path_poses：把 ROS 路径或数组统一校验为有限的 x/y/yaw 序列。
 def _path_poses(path):
     if not hasattr(path, 'poses'):
         values = np.asarray(path, dtype=float)
@@ -219,6 +228,7 @@ def _path_poses(path):
     return np.asarray(values, dtype=float).reshape(-1, 3)
 
 
+# 【职责 / R32 R40】path_clear：检查实际车位到剩余路线的完整车身扫掠，异常时拒绝放行。
 def path_clear(path, points_world, footprint, start_index=0, robot_pose=None):
     """True only if the remaining path clears every supplied visual point cell.
 
@@ -242,6 +252,7 @@ def path_clear(path, points_world, footprint, start_index=0, robot_pose=None):
         return False
 
 
+# 【职责 / R32 R40】command_clear：按实际限幅速度、源延迟和制动距离检查即将执行的整车圆弧。
 def command_clear(points_world, footprint, robot_pose, linear, yaw, source_at, now):
     """Check the actual limited command, including source lag and braking travel.
 

@@ -28,11 +28,13 @@ def attach(app, motion):
     parameter_node=Node('visual_car_inflation_client',context=nav.node.context)
     executor=SingleThreadedExecutor(context=nav.node.context)
     executor.add_node(parameter_node)
+    # 【职责 / R12 R14 R21】spin：在自有线程运行参数客户端执行器，不占用主控制回调。
     def spin():
         try:executor.spin()
         except ExternalShutdownException:pass
     worker=threading.Thread(target=spin,name='nav2-inflation-client',daemon=True)
     worker.start()
+    # 【职责 / R12 R14 R21】close：停止自有参数执行器并有界等待线程退出。
     def close():
         executor.shutdown(timeout_sec=3.)
         worker.join(timeout=3.)

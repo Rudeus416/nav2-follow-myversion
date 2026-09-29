@@ -485,6 +485,7 @@ def run_capture(args) -> dict:
 def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description=__doc__,
+        
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         allow_abbrev=False,
     )

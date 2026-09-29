@@ -6,9 +6,11 @@ import multiprocessing as mp
 import os
 
 
+# 【职责 / R38】SemanticRuntime：限制自有语义子进程的线程池和调度优先级。
 class SemanticRuntime:
     """Created only inside our multiprocessing child, never the camera process."""
 
+    # 【职责 / R38】__init__：只在子进程安装资源限额，并覆盖已加载及以后创建的本地线程池。
     def __init__(self, torch_module=None, cv2_module=None, pool_limiter=None):
         if mp.parent_process() is None:
             raise RuntimeError('语义资源限制只能在自有子进程设置')
@@ -36,6 +38,7 @@ class SemanticRuntime:
             self.torch.set_num_interop_threads(1)
         self.apply()
 
+    # 【职责 / R38】_lower_priority：降低自有子进程现有线程优先级，线程消失竞态可忽略。
     @staticmethod
     def _lower_priority():
         # Linux nice is per-thread. Lower the calling thread first, then pools
@@ -49,6 +52,7 @@ class SemanticRuntime:
             except ProcessLookupError:
                 pass  # A native helper thread may have finished meanwhile.
 
+    # 【职责 / R38】apply：后端每次重建后恢复 Torch、OpenCV 和原生池单线程。
     def apply(self):
         """Reapply after backend setup, before any warmup/forward inference."""
         self.torch.set_num_threads(1)
@@ -57,11 +61,14 @@ class SemanticRuntime:
         # context exit restoring wider pools between requests.
         self._pool_limits=self._pool_limiter(limits=1)
 
+    # 【职责 / R38】predictor_type：为具体预测器生成限额子类，不修改第三方全局类型。
     def predictor_type(self, base):
         """Preserve the task-specific predictor and bound every backend rebuild."""
         if base not in self._limited_predictors:
             runtime=self
+            # 【职责 / R38】LimitedPredictor：在后端建立后恢复限额，并在 forward 前检查任务时效。
             class LimitedPredictor(base):
+                # 【职责 / R38】setup_model：调用原后端初始化后重新应用被其覆盖的线程数。
                 def setup_model(self, *args, **kwargs):
                     result=super().setup_model(*args, **kwargs)
                     # Ultralytics select_device('cpu') resets torch to its
@@ -69,6 +76,7 @@ class SemanticRuntime:
                     runtime.apply()
                     return result
 
+                # 【职责 / R38】inference：在所有预处理完成后、真正模型推理前执行时效守卫。
                 def inference(self, *args, **kwargs):
                     # Source setup/preprocessing can itself take time on the
                     # first image. The optional owner's guard runs immediately
@@ -79,6 +87,7 @@ class SemanticRuntime:
             self._limited_predictors[base]=LimitedPredictor
         return self._limited_predictors[base]
 
+    # 【职责 / R38】model：只包装该子进程拥有的 YOLOE 模型加载器。
     def model(self, model_type, model_path):
         """Wrap only this child-owned YOLOE; do not patch library globals.
 
@@ -87,7 +96,9 @@ class SemanticRuntime:
         therefore necessary for both first setup and later backend rebuilds.
         """
         runtime=self
+        # 【职责 / R38】LimitedSemanticModel：只把 predictor 组件替换为限额子类。
         class LimitedSemanticModel(model_type):
+            # 【职责 / R38】_smart_load：保留原组件选择，仅对 predictor 应用自有包装。
             def _smart_load(self, key):
                 component=super()._smart_load(key)
                 return runtime.predictor_type(component) if key=='predictor' else component

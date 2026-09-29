@@ -1,11 +1,13 @@
-# 【R33】独立导航 TF 接收，避免原单线程回调等导航锁时阻塞定位更新。
+# 【内容标注 / R33】独立导航 TF 接收，避免原单线程回调等导航锁时阻塞定位更新。
 # 只订阅 TF，不迁移原节点、不发布底盘指令、不修改定位新鲜度门槛。
 """A private TF node/executor, with bounded and idempotent cleanup."""
 import logging
 import threading
 
 
+# 【职责 / R33】PoseListener：用独立 ROS 节点和执行线程接收导航 TF，避免控制锁饿死定位。
 class PoseListener:
+    # 【职责 / R33】__init__：在同一 ROS context 创建专用 TF listener 和执行器，并处理半初始化清理。
     def __init__(self, source_node, buffer):
         from rclpy.executors import SingleThreadedExecutor
         from rclpy.node import Node
@@ -39,11 +41,13 @@ class PoseListener:
             self.close()
             raise
 
+    # 【职责 / R33】_on_shutdown：context 关闭回调只置停止事件，避免在 context 锁内销毁 ROS 对象。
     def _on_shutdown(self):
         # Humble invokes context callbacks under its context lock. Do not join
         # or destroy ROS objects there: spin may need that same context lock.
         self._stop.set()
 
+    # 【职责 / R33】_spin：独立运行 TF 执行器；正常关闭和异常都进入幂等释放。
     def _spin(self):
         from rclpy.executors import ExternalShutdownException, ShutdownException
         try:
@@ -57,6 +61,7 @@ class PoseListener:
         finally:
             self._dispose()
 
+    # 【职责 / R33】close：停止并有界等待自有监听线程，不等待当前线程自身。
     def close(self):
         """Stop only our listener; never join self or destroy an active callback."""
         self._stop.set()
@@ -71,6 +76,7 @@ class PoseListener:
         self._dispose()
         return self._closed.is_set()
 
+    # 【职责 / R33】_dispose：只销毁本监听器创建的执行器、节点和关闭回调。
     def _dispose(self):
         with self._lock:
             if self._disposed:

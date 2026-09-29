@@ -7,6 +7,10 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
 from nav2 import replan_support as support
+# Import before fake_ros_time patches sys.modules: otherwise cleanup removes a
+# lazily loaded module but leaves the package attribute, and the next mock can
+# patch an orphan module while the worker imports a new unpatched instance.
+from nav2 import replan_safety  # noqa: F401
 from nav2.tests.simulate_vision_contention import fixture, fake_ros_time
 from nav2.tests.test_person_navigation import pose
 

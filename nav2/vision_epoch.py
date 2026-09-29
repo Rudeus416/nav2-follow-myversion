@@ -12,6 +12,7 @@ import functools
 import threading
 
 
+# 【职责 / R37】VisionSnapshot：冻结一次视觉配置代次、流身份和可用状态。
 @dataclass(frozen=True)
 class VisionSnapshot:
     token: int
@@ -20,6 +21,7 @@ class VisionSnapshot:
     ready: bool = True
 
 
+# 【职责 / R37】VisionEpoch：配置开始前失效旧代次，成功结束后发布一致快照。
 class VisionEpoch:
     """Mirror an engine generation and invalidate it before configuration waits.
 
@@ -34,6 +36,7 @@ must invalidate navigation under the same navigation lock used for that commit.
 An engine without ``configure`` is accepted for read-only test fixtures.
     """
 
+    # 【职责 / R37】__init__：只包装当前引擎实例的 configure，并建立短锁快照。
     def __init__(self, engine, invalidate_callback=None):
         self._engine = engine
         self._lock = threading.Lock()
@@ -48,27 +51,32 @@ An engine without ``configure`` is accepted for read-only test fixtures.
         with engine.lock:
             self._snapshot = self._read_key()
             if callable(self._original):
+                # 【职责 / R37】configure：把该实例的配置调用转给代次门控。
                 @functools.wraps(self._original)
                 def configure(*args, **kwargs):
                     return self._configure(*args, **kwargs)
                 self._wrapper = configure
                 engine.configure = configure
 
+    # 【职责 / R37】_read_key：在引擎锁内复制版本和流身份，不等待融合工作。
     def _read_key(self):
         """Called under engine.lock; no private gate lock is held on entry."""
         return VisionSnapshot(self._token, self._engine._config_version,
                               getattr(self._engine, '_stream_epoch', None))
 
+    # 【职责 / R37】snapshot：短锁返回当前可提交代次；配置中或关闭时为空。
     def snapshot(self):
         """Return a coherent ready generation, or None while unsafe/closed."""
         with self._lock:
             return self._snapshot
 
+    # 【职责 / R37】current：用对象身份确认结果仍属于当前代次。
     def current(self, snapshot):
         """Check both generation identity and readiness without engine.lock."""
         with self._lock:
             return snapshot is not None and snapshot is self._snapshot
 
+    # 【职责 / R37】_configure：先使旧结果失效，再执行原配置；仅最后一个成功批次恢复快照。
     def _configure(self, *args, **kwargs):
         with self._lock:
             if self._closed:
@@ -104,6 +112,7 @@ An engine without ``configure`` is accepted for read-only test fixtures.
                     if not self._closed and self._active == 0 and not self._failed:
                         self._snapshot = VisionSnapshot(self._token, version, epoch)
 
+    # 【职责 / R37】close：关闭读取并仅在仍拥有包装器时恢复原 configure。
     def close(self):
         """Disable reads and restore configure only while owning its wrapper."""
         with self._lock:

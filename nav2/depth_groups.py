@@ -3,6 +3,7 @@
 import numpy as np
 
 
+# 【职责 / R38】_unusual_points：为非有限或非常规输入保留旧 NumPy/NaN 选择语义。
 def _unusual_points(labels, forward, lateral, ids):
     """Retain the original NumPy/NaN semantics outside the finite depth path."""
     distance = {i: float(np.percentile(forward[labels == i], 10)) for i in ids}
@@ -21,6 +22,7 @@ def _unusual_points(labels, forward, lateral, ids):
     return selected
 
 
+# 【职责 / R38】nearest_fragments：一次聚合各连通片统计并选最近相邻碎片，不填补未观测像素。
 def nearest_fragments(labels, forward, lateral):
     """Keep the same nearest fragments, without filling unobserved pixels.
 

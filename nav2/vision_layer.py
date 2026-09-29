@@ -50,6 +50,7 @@ def depth_components(mask, forward, max_step=.30):
     indices=np.arange(mask.size).reshape(mask.shape)
     parents=list(range(mask.size))
 
+    # 【职责 / R38】root：路径压缩查找连通域根节点，保持原像素分组等价。
     def root(index):
         while parents[index]!=index:
             parents[index]=parents[parents[index]]
@@ -89,6 +90,7 @@ def depth_points(depth, shape, calibration, height, pitch, scale, accept=None, n
 # 【职责 / R08 R09 R10 R19 R22】inside_static_map：按旋转后的静态图范围筛选点，避免图外检测写进导航地图。
 def inside_static_map(world, grid, transform):
     """Test odom points against the rotated source map extent."""
+    # 【职责 / R08 R10】yaw：把地图或 TF 四元数转换为平面角，用于静态图坐标变换。
     def yaw(q):
         return math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
     a=yaw(transform.rotation)
@@ -105,6 +107,7 @@ def inside_static_map(world, grid, transform):
 # 【职责 / R08 R09 R10 R19 R22】merge_static_walls：保守栅格化静态占用，避免视觉层覆盖掉原墙。
 def merge_static_walls(data, origin, resolution, grid, transform):
     """Conservatively rasterize occupied static cells into the odom grid."""
+    # 【职责 / R08 R10】yaw：把地图或 TF 四元数转换为平面角，用于静态图坐标变换。
     def yaw(q):
         return math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
     a=yaw(transform.rotation); b=yaw(grid.info.origin.orientation)
@@ -238,6 +241,7 @@ class VisionLayer:
                 self.nav.stop(self.nav.vision_error)
 
     # R37：仅本接入层保存失效代际；不改原相机/检测代码。
+    # 【职责 / R37】invalidate：视觉输入/配置变化时递增修订并清空已提交安全证据。
     def invalidate(self):
         """Call under nav.lock when a visual input/configuration changes."""
         self._revision=getattr(self,'_revision',0)+1
@@ -250,6 +254,7 @@ class VisionLayer:
             # New configurations need three new clear frames, not a mixed history.
             guard.clear_count=0;guard.last_stamp=None
 
+    # 【职责 / R37】_configuration_changed：配置门控失效后停止旧导航依据并唤醒新一代处理。
     def _configuration_changed(self):
         # Gate becomes not-ready BEFORE this callback; commits recheck it.
         with self.nav.lock:
@@ -260,6 +265,7 @@ class VisionLayer:
                 self.nav.stop(self.nav.vision_error)
         self._depth_mailbox.updated.set()
 
+    # 【职责 / R37】receive_static：只在静态图内容或几何真正变化时使进行中的计算失效。
     def receive_static(self, msg):
         # R37：相同地图的周期发布不打断处理；真实编辑使进行中的计算失效。
         info=msg.info;pos=info.origin.position;q=info.origin.orientation
@@ -272,6 +278,7 @@ class VisionLayer:
             self.invalidate()
 
     # R37：邮箱读取不等融合锁；配置由独立的小型代际门控检查。
+    # 【职责 / R37 R38 R39 R40】tick：消费最新深度引用，按代次调度语义并记录端到端分段耗时。
     def tick(self):
         tick_started=time.monotonic()
         tick_gap=tick_started-getattr(self,'_previous_tick',tick_started)
@@ -407,6 +414,7 @@ class VisionLayer:
                 engine_done-latest.frame.source_at if latest is not None else float('inf'))
             logging.getLogger(__name__).warning('视觉深度分段耗时：%s',timing)
 
+    # 【职责 / R40】_route_context：捕获轻量路线复核身份，不等待语义或融合锁。
     def _route_context(self):
         """R40: cheap ownership/configuration token, checked under nav.lock."""
         if not self._work_current(None):return None
@@ -418,6 +426,7 @@ class VisionLayer:
         if gate is not None and epoch is None:return None
         return (getattr(self,'_revision',0),epoch)
 
+    # 【职责 / R37 R40】_work_current：确认线程、修订、导航代次和视觉配置仍属于当前工作。
     def _work_current(self, context):
         """R37: called under nav.lock; never waits for the engine/semantic worker."""
         stopping=getattr(self,'_worker_stop',None)
@@ -430,6 +439,7 @@ class VisionLayer:
                 and generation==getattr(self.nav,'generation',0)
                 and (gate is None or gate.current(epoch)))
 
+    # 【职责 / R37】_fresh_record：按原采集时间拒绝未来帧或超过 1.2 秒的深度结果。
     @staticmethod
     def _fresh_record(record):
         age=time.monotonic()-record.frame.source_at
@@ -440,10 +450,12 @@ class VisionLayer:
             raise VisionStale('视觉障碍数据超时，停车等待新数据')
 
     # R37：分阶段更新。TF、深度几何、栅格和发布均不持速度控制锁。
+    # 【职责 / R37 R40】_tick_locked：锁外完成投影/构图/发布，仅在短锁内提交同代安全状态。
     def _tick_locked(self, records, version, objects=None):
         context=None
         stages=self._stage_timing={}
         stage_at=time.monotonic()
+        # 【职责 / R40】mark：记录本帧各处理阶段耗时，不改变源时间或安全期限。
         def mark(name):
             # R40: local phase clocks include lock wait; never modify source time.
             nonlocal stage_at
@@ -479,7 +491,9 @@ class VisionLayer:
             camera_rotation=np.array([[c,s],[-s,c]])
             c,s=math.cos(yaw),math.sin(yaw)
             base_rotation=np.array([[c,s],[-s,c]])
+            # 【职责 / R10 R40】to_base：把相机候选按安装外参转换到底盘平面坐标。
             def to_base(points):return points@camera_rotation+np.array([mx,my])
+            # 【职责 / R10 R40】to_world：把底盘候选按同帧 TF 转换到 odom 世界坐标。
             def to_world(points):
                 return to_base(points)@base_rotation+np.array([tf.translation.x,tf.translation.y])
             static_tf=None;accept=None

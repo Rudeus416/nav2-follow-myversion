@@ -5,6 +5,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(visual_car_whole_body)
 set(CMAKE_CXX_STANDARD 17)
+# 【职责 / R13 R23 R41】依赖组：只链接系统 ROS/Nav2、OpenCV 与 OMPL；构建脚本负责隔离 Conda。
 find_package(ament_cmake REQUIRED)
 find_package(nav2_core REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
@@ -12,6 +13,7 @@ find_package(dwb_core REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 find_package(ompl REQUIRED)
+# 【职责 / R13 R23】插件组：构建自有共享库并向三个 Nav2 基类注册同一 plugins.xml。
 add_library(visual_car_whole_body SHARED src/plugins.cpp)
 target_include_directories(visual_car_whole_body PRIVATE ${OpenCV_INCLUDE_DIRS} ${OMPL_INCLUDE_DIRS})
 ament_target_dependencies(visual_car_whole_body nav2_core nav2_costmap_2d dwb_core pluginlib)
@@ -19,6 +21,7 @@ target_link_libraries(visual_car_whole_body ${OpenCV_LIBRARIES} ${OMPL_LIBRARIES
 pluginlib_export_plugin_description_file(nav2_core plugins.xml)
 pluginlib_export_plugin_description_file(nav2_costmap_2d plugins.xml)
 pluginlib_export_plugin_description_file(dwb_core plugins.xml)
+# 【职责 / R13 R22 R23】安装与测试组：先构建离线几何/加载/图层验证，再由 build.sh 测试后安装。
 install(TARGETS visual_car_whole_body LIBRARY DESTINATION lib)
 add_executable(whole_body_test src/test.cpp)
 target_include_directories(whole_body_test PRIVATE ${OpenCV_INCLUDE_DIRS} ${OMPL_INCLUDE_DIRS})

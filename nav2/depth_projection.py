@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 
+# 【职责 / R40】DepthProjection：一帧共享深度投影和连通域，按需计算最近物体分组。
 class DepthProjection:
     """Own projected arrays for one frame, with lazy nearest-object grouping.
 
@@ -16,6 +17,7 @@ class DepthProjection:
     cross-frame cache and does not carry or replace source timestamps.
     """
 
+    # 【职责 / R40】__init__：投影并冻结同帧基础数组，后续筛选不修改源深度。
     def __init__(self, depth, shape, calibration, height, pitch, scale):
         values = cv2.resize(np.squeeze(depth).astype(np.float32), (80, 60),
                             interpolation=cv2.INTER_NEAREST) * scale
@@ -52,6 +54,7 @@ class DepthProjection:
         for array in (forward, lateral, valid, ranged, geometric, components):
             array.setflags(write=False)
 
+    # 【职责 / R40】_nearest：最多一次计算深度连通域和最近碎片掩膜。
     def _nearest(self, split_components):
         if self._nearest_labels is None:
             labels = split_components(self._components, self._forward)
@@ -62,6 +65,7 @@ class DepthProjection:
             self._nearest_labels, self._nearest_mask = labels, mask
         return self._nearest_labels, self._nearest_mask
 
+    # 【职责 / R40】points：用独立掩膜筛选安全、地图或相机候选，保持原像素顺序。
     def points(self, *, accept=None, nearest_only=True, diagnostics=None,
                instances=None, split_components=None, nearest_fragments=None):
         """Select points in original row order, without mutating shared masks.

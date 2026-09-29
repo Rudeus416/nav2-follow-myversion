@@ -24,6 +24,7 @@ import threading
 import time
 
 
+# 【职责 / R32】ObstacleReplanner：同一锁定终点的“停车—取消—重规划—复核—恢复”有界状态机。
 class ObstacleReplanner:
     """One cancel → plan → validate → execute episode at a time, same endpoint."""
 
@@ -31,6 +32,7 @@ class ObstacleReplanner:
     PLAN_TIMEOUT = 5.0
     MAX_ATTEMPTS = 3
 
+    # 【职责 / R32】__init__：初始化单次绕障阶段、动作句柄、授权和尝试次数。
     def __init__(self, owner):
         self.owner = owner
         self.nav = owner.nav
@@ -48,24 +50,29 @@ class ObstacleReplanner:
         self._committing = False
         self._allow_near = False
 
+    # 【职责 / R32】active：报告当前是否仍持有一个可恢复的锁定分段。
     @property
     def active(self):
         return self.segment is not None
 
+    # 【职责 / R32 R40】current_path：暴露当前实际执行路线身份，供异步复核隔离迟到结果。
     @property
     def current_path(self):
         """Actual armed/executing path, also an identity fence for route monitors."""
         return self._path
 
+    # 【职责 / R32】holding：标识取消、规划或复核期间的强制零速阶段。
     @property
     def holding(self):
         return self.segment is not None and self.stage in ('canceling', 'planning', 'validating')
 
+    # 【职责 / R32 R40】permits_near：仅让已复核绕行段使用方向性整车速度门控。
     @property
     def permits_near(self):
         """A checked detour may use the directional swept-body output guard."""
         return self.segment is not None and self._allow_near and self.stage == 'executing'
 
+    # 【职责 / R32】_pose：校验 ROS 位姿有限性和四元数后转换为平面位姿。
     @staticmethod
     def _pose(item):
         p, q = item.pose.position, item.pose.orientation
@@ -77,6 +84,7 @@ class ObstacleReplanner:
             raise RuntimeError('绕障路径包含无效朝向')
         return p.x, p.y, math.atan2(2 * (q.w*q.z + q.x*q.y), 1 - 2 * (q.y*q.y + q.z*q.z))
 
+    # 【职责 / R32】arm：记录已复核固定分段及其授权身份，不重置绕障预算。
     def arm(self, path, target_id, generation, locked=False):
         """Remember a checked segment; automatic ordinary follow stays unchanged.
 
@@ -120,6 +128,7 @@ class ObstacleReplanner:
         self._path = path
         self.stage = 'executing'
 
+    # 【职责 / R32】invalidate：撤销本轮及所有迟到规划回调，并取消仍可取消的规划句柄。
     def invalidate(self):
         """Revoke all recovery callbacks; late planner acceptance is canceled."""
         self._episode = None
@@ -138,6 +147,7 @@ class ObstacleReplanner:
                 # by episode identity even if cancel transport is unavailable.
                 pass
 
+    # 【职责 / R32】_authorization_error：核对强停、模式、人物 ID、流和跟随授权是否仍与本段一致。
     def _authorization_error(self):
         s, n = self.segment, self.nav
         if s is None:
@@ -157,9 +167,11 @@ class ObstacleReplanner:
             return '绕障期间人物相机流状态不可用'
         return ''
 
+    # 【职责 / R32】_current：用对象身份确认异步回调仍属于当前恢复轮次。
     def _current(self, token):
         return token is not None and token is self._episode and self.holding
 
+    # 【职责 / R32】_check：复核代次、授权和阶段总时限，失效任务不再提交运动。
     def _check(self, token):
         """Return False for stale callbacks; current but invalid work fails closed."""
         if not self._current(token):
@@ -173,6 +185,7 @@ class ObstacleReplanner:
                                else '障碍绕行规划或整车复核超时')
         return True
 
+    # 【职责 / R32】trigger：新障碍出现时立即锁零速并取消旧动作，终点保持不变。
     def trigger(self, reason):
         """Latch an actual collision, stop locally, then wait for old action end.
 
@@ -225,6 +238,7 @@ class ObstacleReplanner:
                     self.fail('旧路线取消通信失败，保持停车：' + str(exc))
             return True
 
+    # 【职责 / R32】execution_result：只消费旧路线的确认终态，避免取消应答被误当成终态。
     def execution_result(self, future, handle):
         """Consume only this recovery's old canceled/aborted execution result.
 
@@ -268,6 +282,7 @@ class ObstacleReplanner:
                 self.fail('障碍停车时无法确认旧路线终态：' + str(exc))
                 return True
 
+    # 【职责 / R32】tick：旧动作结束后推进一次规划任务，恢复期间持续复核传感器。
     def tick(self):
         """Advance after confirmed cancellation; enforce one total plan budget."""
         n = self.nav
@@ -293,6 +308,7 @@ class ObstacleReplanner:
             except Exception as exc:
                 self.fail(str(exc))
 
+    # 【职责 / R32】_ready_pose：读取并校验停车位置及绕障所需传感器状态。
     def _ready_pose(self):
         provider = getattr(self.nav, 'replan_ready_pose', None)
         if not callable(provider):
@@ -302,6 +318,7 @@ class ObstacleReplanner:
             raise RuntimeError('障碍绕行缺少有效停车位置')
         return pose
 
+    # 【职责 / R32】_plan：在授权锁内向原终点提交 ComputePathToPose。
     def _plan(self, token):
         n = self.nav
         try:
@@ -332,6 +349,7 @@ class ObstacleReplanner:
                 if self._current(token):
                     self.fail(str(exc))
 
+    # 【职责 / R32】_accepted：接收规划动作句柄；失效或拒绝的请求不进入复核。
     def _accepted(self, future, token):
         n = self.nav
         with n.lock:
@@ -353,6 +371,7 @@ class ObstacleReplanner:
                         self._planner_handle = handle
                     self.fail(str(exc))
 
+    # 【职责 / R32】_result：取得规划终态后把耗时整车复核移交后台线程。
     def _result(self, future, token):
         with self.nav.lock:
             if not self._current(token):
@@ -368,6 +387,7 @@ class ObstacleReplanner:
             except Exception as exc:
                 self.fail(str(exc))
 
+    # 【职责 / R32 R40】_finish：锁外复核整车、地图和视觉，再原子提交仍有效的同一终点路线。
     def _finish(self, future, token):
         """Expensive geometry runs without motion/nav locks; commit is rechecked."""
         n = self.nav
@@ -429,6 +449,7 @@ class ObstacleReplanner:
                                            and segment.get('generation') == n.generation):
                     self.fail(str(exc))
 
+    # 【职责 / R32】fail：任何不可恢复条件都保持停车、记录原因并禁止自动重启。
     def fail(self, reason):
         """A failed attempt is terminal, never an automatic retry loop."""
         message = '障碍绕行停止：' + str(reason)

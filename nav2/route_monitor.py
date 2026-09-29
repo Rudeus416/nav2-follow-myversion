@@ -16,6 +16,7 @@ import time
 from nav2.replan_support import recovery
 
 
+# 【职责 / R40】_Ticket：冻结一次路线复核的任务、分段、路径、代次和视觉上下文身份。
 @dataclass(frozen=True)
 class _Ticket:
     task: object
@@ -25,9 +26,11 @@ class _Ticket:
     context: object
 
 
+# 【职责 / R40】RouteMonitor：单后台线程合并复核通知，慢几何不阻塞视觉提交。
 class RouteMonitor:
     """One lazy worker with one replaceable pending notification, never a queue."""
 
+    # 【职责 / R40】__init__：初始化可替换待处理通知、关闭代次和小型诊断计数。
     def __init__(self, nav, *, context=None, monitor=None):
         self.nav = nav
         self._context = context or (lambda: True)
@@ -41,6 +44,7 @@ class RouteMonitor:
         self._stats = dict(offers=0, coalesced=0, checks=0, discarded=0,
                            failures=0, last_seconds=0., max_seconds=0., last_error='')
 
+    # 【职责 / R40】_ticket：在导航锁内捕获当前授权路线身份，本身不授权运动。
     def _ticket(self):
         """Caller holds nav.lock; a notification itself never authorizes motion."""
         nav = self.nav
@@ -58,6 +62,7 @@ class RouteMonitor:
         return _Ticket(task, getattr(task, 'segment', None), path,
                        nav.generation, context)
 
+    # 【职责 / R40】_current：复核任务、段、路径、代次和上下文仍完全一致。
     def _current(self, ticket):
         """Called under nav.lock: fence both geometry and late worker failures."""
         if self._closed.is_set():
@@ -73,6 +78,7 @@ class RouteMonitor:
         context = self._context()
         return context is not None and context == ticket.context
 
+    # 【职责 / R40】offer：仅保留最新复核请求并立即返回，空闲时才启动一个线程。
     def offer(self):
         """Schedule latest state and return immediately; start no idle threads."""
         with self.nav.lock:
@@ -105,6 +111,7 @@ class RouteMonitor:
             return False
         return True
 
+    # 【职责 / R40】_fail：未知复核异常只停止仍属于该票据的原任务。
     def _fail(self, ticket, exc):
         """Unknown check failure stops only the still-authorized original task."""
         reason = '整段路线复核异常，保持停车：' + str(exc)
@@ -118,6 +125,7 @@ class RouteMonitor:
         logging.getLogger(__name__).error(reason)
         return True
 
+    # 【职责 / R40】_run：串行执行最新路线复核并统计耗时，迟到结果由票据隔离。
     def _run(self):
         while not self._closed.is_set():
             self._wake.wait()
@@ -158,6 +166,7 @@ class RouteMonitor:
                     self._stats['last_seconds'] = elapsed
                     self._stats['max_seconds'] = max(self._stats['max_seconds'], elapsed)
 
+    # 【职责 / R40】snapshot：只返回计数和耗时，不复制点云或路线。
     def snapshot(self):
         """Small diagnostics only; never expose or copy a cloud or route."""
         with self._lock:
@@ -166,6 +175,7 @@ class RouteMonitor:
                         closed=self._closed.is_set(),
                         started=self._thread is not None)
 
+    # 【职责 / R40】close：立即撤销结果效力，再有界等待自有线程退出。
     def close(self, timeout=.5):
         """Revoke effects immediately, then wait only a bounded time for geometry."""
         self._closed.set()

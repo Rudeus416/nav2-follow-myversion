@@ -12,6 +12,7 @@ MAX_MAP_PIXELS = 1_000_000
 MAX_GLOBAL_CELLS = 1_000_000
 
 
+# 【职责 / R26】_number：校验地图窗口计算所需的有限数值和正数约束。
 def _number(value, label, positive=False):
     if (type(value) not in (int, float) or not math.isfinite(value)
             or (positive and value <= 0)):
@@ -19,6 +20,7 @@ def _number(value, label, positive=False):
     return float(value)
 
 
+# 【职责 / R20 R26】configure_global_map_window：按旋转后整图跨度扩大全局窗口，保留更大的显式配置。
 def configure_global_map_window(config, mode, map_file, map_to_odom_yaw=math.pi / 2):
     """Expand map/both global windows, retaining larger explicitly set dimensions.
 

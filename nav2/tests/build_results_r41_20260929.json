@@ -1,0 +1,51 @@
+{
+  "requirement": "R41: 修复构建时的 Conda C++ 依赖冲突",
+  "system_dependency_cache": {
+    "fmt_DIR": "/usr/lib/aarch64-linux-gnu/cmake/fmt",
+    "spdlog_DIR": "/usr/lib/aarch64-linux-gnu/cmake/spdlog",
+    "CMAKE_C_COMPILER": "/usr/bin/cc",
+    "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+    "Python3_EXECUTABLE": "/usr/bin/python3"
+  },
+  "artifacts": {
+    "build/whole_body_test": {
+      "runpath": [
+        "0x000000000000001d (RUNPATH)            Library runpath: [/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu]"
+      ],
+      "cpp_runtime": [
+        "libstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000ffff85fa0000)"
+      ],
+      "sha256": "8e3f26733862483af4401c724bd8b35840b3e9ce512b0ce6f13c64211da70d02"
+    },
+    "build/libvisual_car_whole_body.so": {
+      "runpath": [
+        "0x000000000000001d (RUNPATH)            Library runpath: [/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu:]"
+      ],
+      "cpp_runtime": [
+        "libstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000ffffa57b0000)"
+      ],
+      "sha256": "2148a7a299139a3cd32bd5fe016e012cf2996b9b481b254d016f5112067c302c"
+    },
+    "install/lib/libvisual_car_whole_body.so": {
+      "runpath": [],
+      "cpp_runtime": [
+        "libstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000ffffa6470000)"
+      ],
+      "sha256": "bec1056042d59f625bc89707721a6ba98177d47d748e2af2e9c19a6e4792ddda"
+    }
+  },
+  "geometry_ctest_passed": true,
+  "three_plugin_types_load": true,
+  "isolated_layer_test_passed": true,
+  "conda_polluted_parent_build_passed": true,
+  "plugin_registration_types": [
+    "nav2_core__pluginlib__plugin",
+    "nav2_costmap_2d__pluginlib__plugin",
+    "dwb_core__pluginlib__plugin",
+    "packages"
+  ],
+  "protected_file_count": 85,
+  "protected_file_mismatches": [],
+  "real_navigation_or_chassis_started": false,
+  "synthetic_layer_ros_domain": 231
+}

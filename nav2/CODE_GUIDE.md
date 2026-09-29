@@ -2,7 +2,7 @@
 
 本索引记录当前代码与本会话用户指令的对应关系。**不是逐次提交的审计记录**：仅凭当前文件和对话，无法证明每个函数最早由哪一轮创建，也无法完整恢复历次中间实现。需求原话可确认，早期创建轮次未确认；表中“添加/修改逻辑”描述当前最终实现，不虚构历史 diff。需求编号是本次人工整理的索引，不是平台消息 ID。
 
-R24 标注轮次只插入注释和文档，不改变默认开关、参数、代码语句、接口或运行行为。后续 R25 自检的行为修复与尚存限制见 [自检报告](AUDIT.md)。原注释和原函数文档字符串保留；注释中的“安全/可通过”指当前模型及检查条件下的判断，不等于实车验证。
+R24 标注轮次只插入注释和文档，不改变默认开关、参数、代码语句、接口或运行行为。后续 R25 自检的行为修复与尚存限制见 [自检报告](AUDIT.md)。原注释和原函数文档字符串保留；注释中的“安全/可通过”指当前模型及检查条件下的判断，不等于实车验证。 R42 再次执行全量注释审计，补齐后续 R35～R41 模块的函数职责和本文件遗漏的文件索引；本轮同样不修改可执行语句。公开对话、诊断依据、撤回项和限制见 [对话、公开分析与修改审计记录](CONVERSATION_AUDIT.md)。
 
 ## 用户指令索引
 
@@ -313,7 +313,7 @@ R24 标注轮次只插入注释和文档，不改变默认开关、参数、代�
 | [nav2/vision_layer.py](vision_layer.py) | 视觉障碍候选与代价地图生成 | [R08](#r08) [R09](#r09) [R10](#r10) [R19](#r19) [R22](#r22) [R32](#r32) | 串行读取深度；变换/筛选最近候选；合并静态墙；独立使用全部候选做近距停车 |
 | [nav2/vision_toggle.py](vision_toggle.py) | 视觉障碍层网页开关与状态 | [R07](#r07) [R22](#r22) | 独立开关视觉参与导航；管理视觉工作线程、数据时效和诊断快照 |
 | [nav2/whole_body/CMakeLists.txt](whole_body/CMakeLists.txt) | 自有整车插件构建与注册 | [R13](#r13) [R23](#r23) | 声明依赖、构建/安装或插件注册；具体见本文件指令，不改系统 Nav2 源码 |
-| [nav2/whole_body/build.sh](whole_body/build.sh) | 自有整车插件构建与注册 | [R13](#r13) [R23](#r23) | 声明依赖、构建/安装或插件注册；具体见本文件指令，不改系统 Nav2 源码 |
+| [nav2/whole_body/build.sh](whole_body/build.sh) | 隔离构建、测试与安装自有整车插件 | [R13](#r13) [R23](#r23) [R41](#r41) | 在干净子进程固定系统 ROS/C++/fmt/spdlog，清除自有污染缓存；CTest、插件加载和隔离图层通过后才安装 |
 | [nav2/whole_body/package.xml](whole_body/package.xml) | 自有整车插件构建与注册 | [R13](#r13) [R23](#r23) | 声明依赖、构建/安装或插件注册；具体见本文件指令，不改系统 Nav2 源码 |
 | [nav2/whole_body/plugins.xml](whole_body/plugins.xml) | 自有整车插件构建与注册 | [R13](#r13) [R23](#r23) | 声明依赖、构建/安装或插件注册；具体见本文件指令，不改系统 Nav2 源码 |
 | [nav2/whole_body/src/geometry.hpp](whole_body/src/geometry.hpp) | 整车几何与硬缓冲基础 | [R13](#r13) [R14](#r14) [R23](#r23) | SAT 多边形碰撞、轨迹扫掠、占用索引及硬膨胀；未知/障碍/紫色不得进入 |
@@ -334,6 +334,37 @@ R24 标注轮次只插入注释和文档，不改变默认开关、参数、代�
 | [tests/test_route_preview.py](../tests/test_route_preview.py) | 导航相关已有回归：test_route_preview | [R02](#r02) [R03](#r03) [R08](#r08) [R11](#r11) [R13](#r13) [R22](#r22) | 与导航功能相关的离线回归；关联这些需求不表示整份测试最初都由本轮创建 |
 | [tests/test_virtual_wall.py](../tests/test_virtual_wall.py) | 导航相关已有回归：test_virtual_wall | [R02](#r02) [R03](#r03) [R08](#r08) [R11](#r11) [R13](#r13) [R22](#r22) | 与导航功能相关的离线回归；关联这些需求不表示整份测试最初都由本轮创建 |
 | [tests/test_vision_layer.py](../tests/test_vision_layer.py) | 导航相关已有回归：test_vision_layer | [R02](#r02) [R03](#r03) [R08](#r08) [R11](#r11) [R13](#r13) [R22](#r22) | 与导航功能相关的离线回归；关联这些需求不表示整份测试最初都由本轮创建 |
+
+| [nav2/depth_groups.py](depth_groups.py) | 最近深度连通碎片的等价快速选择 | [R38](#r38) | 一次聚合各标签统计，保留原最近/相邻规则和异常输入语义，不填补未观察像素 |
+| [nav2/depth_profile.py](depth_profile.py) | Nav2 专用深度输入尺寸上限 | [R39](#r39) | 视觉启用时只复制新任务参数并取 512 上限；不改人物模型、共享设置、原帧或采集时间 |
+| [nav2/depth_projection.py](depth_projection.py) | 同帧共享深度投影和连通域 | [R40](#r40) | 一帧基础几何只算一次；全量安全、地图和相机筛选使用独立掩膜，源数组只读 |
+| [nav2/route_monitor.py](route_monitor.py) | 异步剩余路线视觉复核 | [R40](#r40) | 单 owner 线程只保留最新通知；任务/段/路径/配置身份隔离迟到结果，慢几何不堵视觉提交 |
+| [nav2/semantic_budget.py](semantic_budget.py) | 可选 YOLOE 资源预算与迟滞恢复 | [R38](#r38) | 深度超时或节奏恶化立即暂停额外语义，连续健康且稳定满时限后才恢复 |
+| [nav2/semantic_dispatch.py](semantic_dispatch.py) | 语义 worker 单 owner 最新引用分发 | [R37](#r37) | 主视觉线程只交换引用；模型更新、收包、切换和关闭在独立线程串行，代次隔离旧结果 |
+| [nav2/semantic_request.py](semantic_request.py) | 语义任务原采集时间守卫 | [R38](#r38) | 入队、模型准备和真正推理前均拒绝超过 1.2 秒的任务，不以处理完成时间续期 |
+| [nav2/semantic_runtime.py](semantic_runtime.py) | 自有语义子进程资源限额 | [R38](#r38) | 降低该子进程优先级，后端重建后恢复 Torch/OpenCV/原生池单线程，不修改第三方全局类 |
+| [nav2/static_wall_cache.py](static_wall_cache.py) | 相同静态墙栅格缓存 | [R35](#r35) | 内容、几何、TF 或边界不变时复用墙体基底并返回可写副本；视觉候选仍逐帧叠加 |
+| [nav2/vision_epoch.py](vision_epoch.py) | 视觉配置和相机流代次门控 | [R37](#r37) | 配置开始前使旧快照失效；只有完整成功的最后配置发布新快照，关闭时可逆恢复原入口 |
+| [nav2/CONVERSATION_AUDIT.md](CONVERSATION_AUDIT.md) | 对话、公开分析、修改和限制审计 | [R42](#r42) | 记录可见用户指令、可核验回复结论、证据与撤回项；明确不伪造逐字历史或隐藏思维 |
+| [nav2/tests/simulate_vision_contention.py](tests/simulate_vision_contention.py) | 视觉/导航锁竞争线程探针 | [R36](#r36) [R37](#r37) | 构造慢发布、慢引擎锁、语义阻塞和速度出口时间线；不连接相机或底盘 |
+| [nav2/tests/simulate_vision_timing.py](tests/simulate_vision_timing.py) | 视觉时效与停走离线时间线 | [R36](#r36) [R37](#r37) | 用虚拟时间验证短暂停、恢复、长期超时、取消和代次行为 |
+| [nav2/tests/test_depth_groups.py](tests/test_depth_groups.py) | 深度碎片选择等价性回归 | [R38](#r38) | 对比优化前参考实现，覆盖阈值、插值、异常值和大标签输入 |
+| [nav2/tests/test_depth_profile.py](tests/test_depth_profile.py) | 深度尺寸限幅单元回归 | [R39](#r39) | 验证任务复制、开关、异常传递、关闭恢复及原设置不变 |
+| [nav2/tests/test_depth_profile_integration.py](tests/test_depth_profile_integration.py) | 深度限幅生命周期集成回归 | [R39](#r39) | 验证构造失败、切换和退出不遗留入口或改写共享队列 |
+| [nav2/tests/test_depth_projection.py](tests/test_depth_projection.py) | 同帧共享投影等价回归 | [R40](#r40) | 与独立参考算法逐点对照，验证各筛选掩膜互不污染及缓存不跨帧 |
+| [nav2/tests/test_replan_performance.py](tests/test_replan_performance.py) | 绕行几何等价降耗回归 | [R40](#r40) | 验证明显远点/空点快捷路径不跳过预算、桥接或完整车身检查 |
+| [nav2/tests/test_route_monitor.py](tests/test_route_monitor.py) | 异步路线复核所有权回归 | [R40](#r40) | 覆盖通知合并、迟到结果、异常停车、关闭和线程启动失败 |
+| [nav2/tests/test_route_monitor_integration.py](tests/test_route_monitor_integration.py) | 路线复核与视觉提交集成回归 | [R40](#r40) | 验证慢几何不堵新视觉提交，配置/任务失效阻止旧结果生效 |
+| [nav2/tests/test_semantic_budget.py](tests/test_semantic_budget.py) | 语义预算迟滞回归 | [R38](#r38) | 覆盖超时暂停、健康帧计数、稳定期和源身份变化 |
+| [nav2/tests/test_semantic_budget_worker.py](tests/test_semantic_budget_worker.py) | 预算与语义 worker 集成回归 | [R38](#r38) | 验证暂停仍收包、恢复不重复提交旧帧及状态可见性 |
+| [nav2/tests/test_semantic_cleanup.py](tests/test_semantic_cleanup.py) | 语义进程/队列故障清理回归 | [R37](#r37) | 覆盖部分初始化、终止/关闭失败、重复关闭和所有权保留 |
+| [nav2/tests/test_semantic_dispatch.py](tests/test_semantic_dispatch.py) | 单 owner 语义分发回归 | [R37](#r37) | 覆盖最新引用、同帧去重、快速开关、关闭和阻塞 worker |
+| [nav2/tests/test_semantic_request.py](tests/test_semantic_request.py) | 语义任务时效检查回归 | [R38](#r38) | 覆盖排队、初始化和推理前过期，以及下一新帧恢复 |
+| [nav2/tests/test_semantic_runtime.py](tests/test_semantic_runtime.py) | 子进程资源限额回归 | [R38](#r38) | 验证线程数被第三方后端重置后重新收紧且不修改库全局 |
+| [nav2/tests/test_static_wall_cache.py](tests/test_static_wall_cache.py) | 静态墙缓存失效回归 | [R35](#r35) | 覆盖地图编辑、旋转、TF、窗口、边界切换、异常和副本隔离 |
+| [nav2/tests/test_vision_commit.py](tests/test_vision_commit.py) | 视觉锁外计算短锁提交回归 | [R37](#r37) | 覆盖配置、取消、发布、关闭竞态以及危险先停车 |
+| [nav2/tests/test_vision_epoch.py](tests/test_vision_epoch.py) | 视觉配置代次回归 | [R37](#r37) | 覆盖并发配置、失败、快照不可变、关闭和包装入口恢复 |
+| [nav2/tests/test_vision_latency.py](tests/test_vision_latency.py) | 深度通知与阶段时延回归 | [R35](#r35) | 验证事件唤醒、断流健康轮询、首次消费时间和过期语义去重 |
 
 ## 主要调用流程
 
@@ -430,3 +461,40 @@ R24 标注轮次只插入注释和文档，不改变默认开关、参数、代�
 | [tests/test_depth_profile.py](tests/test_depth_profile.py)、[tests/test_depth_profile_integration.py](tests/test_depth_profile_integration.py) | 独立任务/同帧身份、原设置不变、开关和退出、拒绝入队/原异常、无锁委托、非法设置及构造失败恢复 |
 
 原因、局限和生效确认见 [R39 修复记录](PERFORMANCE_REPORT.md#r39)。R39 是需求索引，不是库版本。所有改动位于自有 `nav2/`。
+
+
+<a id="r40"></a>
+
+### R40：人物追踪与选点对比后，用户“优化”“继续”
+
+范围仍遵守“只修改你写的 nav2 代码”。以下是本轮具体用途关联，不代表 ROS/Nav2 的版本号。
+
+| 自有代码位置 | 添加/修改逻辑 |
+|---|---|
+| [depth_projection.py](depth_projection.py)、[vision_layer.py](vision_layer.py) | 一帧只投影/基础连通域一次；最近物体分组延迟计算一次；安全、地图与相机筛选使用各自的掩膜，地图裁剪不影响全量安全点 |
+| [route_monitor.py](route_monitor.py)、[replan_support.py](replan_support.py) | 独立单线程复核剩余路径，最多一次待处理通知；任务、段、路径、配置、源快照和关闭状态约束迟到结果；保持原终点遇障绕行 |
+| [replan_safety.py](replan_safety.py)、[replan_support.py](replan_support.py) | 不可变的同帧障碍格/车身准备移到控制锁外；完整检查采样预算，再排除扫掠外的障碍；每个速度重新检查实际位姿、曲率、制动及源时间 |
+| [vision_layer.py](vision_layer.py) | 安装/关闭自有复核线程；记录投影、近距、候选、发布等分段计时，复核耗时独立记录 |
+| [test_depth_projection.py](tests/test_depth_projection.py)、[test_replan_performance.py](tests/test_replan_performance.py) | 对照旧深度算法及几何边界、不可变输入、无障碍场景也拒绝无效路径和超预算数据 |
+| [test_route_monitor.py](tests/test_route_monitor.py)、[test_route_monitor_integration.py](tests/test_route_monitor_integration.py)、[test_replan_support.py](tests/test_replan_support.py) | 通知合并、慢复核不阻塞视觉、配置变更失效、取消/关闭/启动失败及短锁行为 |
+
+数据与限制见 [R40 记录](PERFORMANCE_REPORT.md#r40)。没有改原相机、控制、启动脚本、前端或外部库；最终核对发现 `capture.py` 有本轮工具操作之外的并行变动，原样保留，未替它回退或覆盖。
+
+
+<a id="r41"></a>
+
+### R41：Nav2 未激活，用户“监测问题”“怎么修正”
+
+[whole_body/build.sh](whole_body/build.sh) 改为独立干净构建进程，系统工具链和 ROS、固定系统 `fmt/spdlog`，禁止用户依赖覆盖；清除自有 CMake 配置缓存中的 Conda 路径，增加构建互斥锁。保留先测试再安装、插件加载及独立 DDS 域合成图层验证。原系统库、Conda 环境、旧代码库与运行服务不修改。
+
+[整车代码说明](whole_body/README.md#7-编译与测试) 和 [启动说明](README.md#startup-commands) 补充故障原因与同一条重建命令；R41 是需求索引，不是 ROS 版本号。验证结果见 [R41 自检](AUDIT.md#r41)。
+
+<a id="r42"></a>
+
+### R42：对话、公开分析与缺失源码注释审计
+
+> 把我们的对话，你的具体思考过程回复等等，全部记录下来生成一个文档放入nav2，同时给你修改的，新增的，没有备注的代码全部加上备注
+
+新增 [对话、公开分析与修改审计记录](CONVERSATION_AUDIT.md)，按可见对话重建需求时间线，并为 R01～R41 记录公开回复结论、判断证据、修改位置、验证和仍存限制。仓库没有完整逐字助手答复和历次 diff，因此文档不伪造缺失原话；隐藏逐 token 思维、内部提示和草稿不导出，改用可由日志、源码、配置与测试复核的公开判断依据。
+
+本轮重新扫描自有 nav2/ 源码：补齐后续状态机、异步视觉、语义预算、深度限幅、整车 C++ 插件和 CMake 的【职责 / Rxx】注释；给缺头注释的近期测试补来源；把 R35～R41 新模块/测试补入文件索引。JSON、PGM、模型、build/install、日志、缓存和二进制仍不插源码注释。本轮不修改可执行语句，不连接或启动小车。

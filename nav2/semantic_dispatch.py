@@ -7,6 +7,7 @@ import threading
 import time
 
 
+# 【职责 / R37】SemanticDispatch：独占语义 worker，用单线程处理最新引用并缓存结果。
 class SemanticDispatch:
     """R37: one owner, one replaceable offer, and a cached result/status.
 
@@ -15,6 +16,7 @@ class SemanticDispatch:
     delay semantic cleanup, but cannot block depth ticks or race worker.close().
     """
 
+    # 【职责 / R37】__init__：建立单 owner、可替换输入和代次隔离状态。
     def __init__(self, worker=None, poll_interval=.05):
         if worker is None:
             from nav2.semantic_obstacles import SemanticWorker
@@ -37,6 +39,7 @@ class SemanticDispatch:
             name='nav2-semantic-owner',daemon=True)
         self._thread.start()
 
+    # 【职责 / R37】offer：只交换最新帧引用，不在视觉线程运行模型或复制大图。
     def offer(self, record):
         """R37: retain only the newest offered reference, without copying images."""
         if record is None:
@@ -51,6 +54,7 @@ class SemanticDispatch:
                 self._status=dict(self._status,fresh=False,objects=[])
             self._wake.set()
 
+    # 【职责 / R37】snapshot：返回仍与当前流匹配且新鲜的同帧语义包。
     def snapshot(self):
         """Return the original source record and its fresh semantic result."""
         with self._lock:
@@ -59,6 +63,7 @@ class SemanticDispatch:
                 return None
             return packet
 
+    # 【职责 / R37】status：无等待读取缓存诊断，过期结果不暴露物体。
     def status(self):
         """R37: UI reads a cache; it never waits for the semantic worker."""
         with self._lock:
@@ -69,6 +74,7 @@ class SemanticDispatch:
                 status['objects']=[]
             return status
 
+    # 【职责 / R37】set_enabled：切换时立即失效旧结果，并由 owner 线程重置 worker。
     def set_enabled(self, enabled):
         """Invalidate results immediately; reset the worker on its owner thread."""
         enabled=bool(enabled)
@@ -89,6 +95,7 @@ class SemanticDispatch:
                           'fresh':False,'objects':[]}
             self._wake.set()
 
+    # 【职责 / R37】close：立即撤销结果；可选等待被限制在短时且不关闭他人资源。
     def close(self, timeout=0.):
         """R37: signal shutdown immediately; any optional join is bounded.
 
@@ -106,10 +113,12 @@ class SemanticDispatch:
         if timeout>0 and self._thread is not threading.current_thread():
             self._thread.join(timeout=min(float(timeout),.2))
 
+    # 【职责 / R37】_context：提取配置版本和相机流作为语义身份。
     @staticmethod
     def _context(record):
         return record.config_version,record.frame.stream_epoch
 
+    # 【职责 / R37】_fresh：以原采集时间判断语义包是否仍在 1.2 秒期限内。
     @staticmethod
     def _fresh(packet):
         if packet is None:
@@ -118,6 +127,7 @@ class SemanticDispatch:
         age=time.monotonic()-source_at
         return math.isfinite(source_at) and 0<=age<=1.2
 
+    # 【职责 / R37】_run：串行更新/收包/重置，积压时只处理最新引用。
     def _run(self):
         record=None
         record_generation=None
@@ -179,6 +189,7 @@ class SemanticDispatch:
         finally:
             self._close_worker()
 
+    # 【职责 / R37】_close_worker：只有 owner 调用实际关闭，失败转为可见诊断。
     def _close_worker(self):
         try:
             self._worker.close()

@@ -5,6 +5,7 @@ import math
 import time
 
 
+# 【职责 / R38】SemanticBudget：按深度时效和结果节奏暂停/恢复可选语义负载。
 class SemanticBudget:
     """Hysteresis on observed source age and completed-result cadence.
 
@@ -13,6 +14,7 @@ class SemanticBudget:
     single fast frame cannot repeatedly restart optional work. This never turns
     stale depth into motion permission and does not interrupt an in-flight call.
     """
+    # 【职责 / R38】__init__：初始化迟滞窗口、健康帧计数和源身份。
     def __init__(self):
         self.paused=False
         self.until=0.
@@ -22,6 +24,7 @@ class SemanticBudget:
         self._gap=None
         self._source=None
 
+    # 【职责 / R38】observe：观察深度健康度；异常立即暂停，稳定五帧且满三秒才恢复。
     def observe(self, record, now=None):
         now=time.monotonic() if now is None else now
         if record is None:
@@ -64,11 +67,14 @@ class SemanticBudget:
                 return self._state(now,age,projected,'深度恢复观察中，暂缓额外语义计算')
         return self._state(now,age,projected,'深度时序正常')
 
+    # 【职责 / R38】_hold：进入至少三秒的语义暂停并清零恢复计数。
     def _hold(self, now, reason, age, projected):
         self.paused=True;self.until=now+3.;self.healthy_frames=0
         return self._state(now,age,projected,reason)
 
+    # 【职责 / R38】_state：生成只含小型数值的预算诊断快照。
     def _state(self, now, age, projected, reason):
+        # 【职责 / R38】finite：把有限诊断值保留到毫秒精度，非法值返回空。
         def finite(value):
             return round(value,3) if value is not None and math.isfinite(value) else None
         return dict(allowed=not self.paused,paused=self.paused,reason=reason,

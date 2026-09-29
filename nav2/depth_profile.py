@@ -14,6 +14,7 @@ from numbers import Integral
 import threading
 
 
+# 【职责 / R39】DepthProfile：仅在 Nav2 视觉启用时限制新深度任务尺寸，不改共享设置。
 class DepthProfile:
     """Cap immutable depth jobs without changing shared engine settings.
 
@@ -24,6 +25,7 @@ called outside our lock, once, preserving its queue, return and error behavior.
 signal. ``offered``/``adjusted`` count attempts, including a rejected offer.
     """
 
+    # 【职责 / R39】validate_limit：安装任何生命周期钩子前校验输入尺寸上限。
     @staticmethod
     def validate_limit(limit):
         """Validate before installing any navigation lifecycle hooks."""
@@ -34,6 +36,7 @@ signal. ``offered``/``adjusted`` count attempts, including a rejected offer.
             raise ValueError('Nav2 深度输入上限必须是 320 至 1280 之间的 32 倍数整数')
         return limit
 
+    # 【职责 / R39】__init__：可逆包装自有深度入口，并保持原任务、队列和回调所有权。
     def __init__(self, depth_worker, enabled, limit=512):
         limit = self.validate_limit(limit)
         if not callable(enabled):
@@ -53,12 +56,14 @@ signal. ``offered``/``adjusted`` count attempts, including a rejected offer.
         self._error = ''
         self._last_notice = None
         if callable(self._original):
+            # 【职责 / R39】offer：保留原入口签名，把新任务转交当前可逆尺寸适配器。
             @functools.wraps(self._original)
             def offer(job):
                 return self._offer(job)
             self._wrapper = offer
             depth_worker.offer = offer
 
+    # 【职责 / R39】_offer：按当前开关复制任务参数并取较小尺寸，原任务和采集时间保持不变。
     def _offer(self, job):
         # A wrapper captured by an earlier caller stays safe after close.
         with self._lock:
@@ -122,6 +127,7 @@ signal. ``offered``/``adjusted`` count attempts, including a rejected offer.
         # already captured here may complete during a concurrent close/toggle.
         return self._original(offered_job)
 
+    # 【职责 / R39】status：返回限幅计数和当前档位，不调用模型或复制图像。
     def status(self):
         """Read small diagnostics only; never invoke callbacks or copy images."""
         with self._lock:
@@ -147,6 +153,7 @@ signal. ``offered``/``adjusted`` count attempts, including a rejected offer.
                         offered=self._offered, adjusted=self._adjusted,
                         error=self._error, message=message)
 
+    # 【职责 / R39】close：仅在仍拥有包装入口时恢复原方法，不清理别人的任务。
     def close(self):
         """Restore only our own entry point; never clear another owner's work."""
         with self._lock:

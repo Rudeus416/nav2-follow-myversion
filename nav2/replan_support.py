@@ -7,14 +7,17 @@ import time
 import numpy as np
 
 
+# 【职责 / R32 R34】NearObstacle：区分新鲜近障与传感器丢失，只有前者可进入同终点绕行。
 class NearObstacle(RuntimeError):
     """Fresh near-field obstacle, distinct from loss of sensor/pose data."""
 
 
+# 【职责 / R32】recovery：取得当前人物导航所拥有的绕障状态机。
 def recovery(nav):
     return getattr(getattr(nav, 'person_navigation', None), 'obstacle_replan', None)
 
 
+# 【职责 / R32 R34】check_vision：检查视觉源年龄和错误；近障仅在明确允许时交给绕行处理。
 def check_vision(nav, allow_near=False):
     if not getattr(nav, 'vision_enabled', False):
         return
@@ -32,6 +35,7 @@ def check_vision(nav, allow_near=False):
             raise RuntimeError(error)
 
 
+# 【职责 / R32 R34 R40】visual_snapshot：读取新鲜、全量且不可变的视觉安全证据和车身轮廓。
 def visual_snapshot(nav):
     """Return fresh immutable full-cloud evidence, never just the nearest cluster."""
     sample = getattr(nav, 'vision_safety', None)
@@ -50,8 +54,10 @@ def visual_snapshot(nav):
     return sample
 
 
+# 【职责 / R32 R33】attach：安装车身、停车位姿和新路线复核提供器，不新增运动通道。
 def attach(nav, view):
     """Install read-only providers; all whole-route work remains outside locks."""
+    # 【职责 / R32 R33】footprint：按轮廓自身时间戳恢复底盘坐标轮廓，读取不能续期证据。
     def footprint():
         # R33: read only the four body vertices. A whole browser snapshot also
         # takes the map-editor lock; doing that every visual tick couples point
@@ -86,6 +92,7 @@ def attach(nav, view):
         # Source ages are preserved; a view read must never renew sensor evidence.
         return body, time.monotonic()-float(foot.get('age', 0.))
 
+    # 【职责 / R32 R34】ready_pose：允许近障存在时仍复核视觉新鲜度、全量证据和当前 TF。
     def ready_pose():
         if not nav.vision_enabled:
             raise RuntimeError('遇障自动绕行需要视觉障碍检测')
@@ -93,6 +100,7 @@ def attach(nav, view):
         visual_snapshot(nav)
         return nav.healthy_pose(check_vision=False)
 
+    # 【职责 / R32 R40】validate：等待障碍后的新全局图，并锁外复核地图、整车和全量视觉。
     def validate(path, since):
         from nav2.route_preview import validate_route_snapshot
         from nav2.replan_safety import path_clear
@@ -124,6 +132,7 @@ def attach(nav, view):
     nav.validate_replan = validate
 
 
+# 【职责 / R32 R40】capture_visual_safety：复制并冻结同帧全点云/车身，预先准备可复用碰撞几何。
 def capture_visual_safety(nav, world_points, source_at, footprint_snapshot=None):
     """Called outside nav.lock by the visual worker; retain all valid candidates."""
     if footprint_snapshot is None:
@@ -153,6 +162,7 @@ def capture_visual_safety(nav, world_points, source_at, footprint_snapshot=None)
     return snapshot
 
 
+# 【职责 / R32 R40】remaining_index：按有限前向窗口单调更新路线进度，防止回头段被误跳过。
 def remaining_index(nav, path, pose):
     """Monotonic, locally bounded progress; a nearby return leg is not a shortcut."""
     old = getattr(nav, '_obstacle_route_progress', None)
@@ -173,6 +183,7 @@ def remaining_index(nav, path, pose):
     return index
 
 
+# 【职责 / R32 R34 R40】monitor_route：锁外复核剩余路线，只有同任务同证据结果可触发停车或绕行。
 def monitor_route(nav, valid=None):
     """R40: full-cloud check; optional worker ownership guard runs under nav.lock.
 
@@ -239,6 +250,7 @@ def monitor_route(nav, valid=None):
             nav.stop('锁定路线障碍复核未通过')
 
 
+# 【职责 / R32 R40】guard_command：每次速度输出前用当前车位和全点云检查整车扫掠。
 def guard_command(nav, pose, output):
     """Check the actual post-limit/post-ramp twist against full-cloud swept body."""
     task = recovery(nav)

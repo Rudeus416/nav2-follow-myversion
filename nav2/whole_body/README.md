@@ -140,6 +140,10 @@ DWB 的 `WholeBodyCritic.getScale()` 固定返回 1，避免通过设置零权�
 bash nav2/whole_body/build.sh
 ```
 
+R41 构建环境修复：脚本在干净子进程中加载 `/opt/ros/humble`，固定系统编译器、Python、`fmt` 和 `spdlog`，禁用 CMake 用户包注册表及 Python 用户包目录。每次只重建自己的 `CMakeCache.txt` 和 `CMakeFiles/`；源文件和旧安装目录不会被整体删除，故障日志在下一次测试前保留。构建锁避免两个本脚本同时重写缓存。此环境隔离不改变当前终端或原视觉服务，也不要求退出 Conda。
+
+若启动提示“先编译本项目整车导航插件”，而测试日志出现 `miniconda3/lib/libstdc++.so.6: GLIBCXX_3.4.30 not found`，原因是旧构建选中了 Conda 的 `fmt/spdlog` 并写入运行库路径，测试进程未能加载，安装步骤尚未执行。直接用更新后的 `bash nav2/whole_body/build.sh` 重新构建。不要跳过测试或替换系统/Conda 库来掩盖问题。
+
 脚本会在 `nav2/whole_body/build/` 构建，安装到 `nav2/whole_body/install/`，不写系统目录。先做 C++ 几何/搜索测试，再做插件加载和图层测试。图层测试使用 `ROS_DOMAIN_ID=231`、localhost 和合成网格，没有底盘速度发布器。编译测试不会启动原网页或真实导航任务。
 
 单独复跑几何测试：
