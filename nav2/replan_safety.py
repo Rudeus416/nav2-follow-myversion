@@ -1,6 +1,8 @@
 # 【内容标注】用途：锁定人物终点重新绕行时的全量视觉点几何安全检查。
 # 对应用户需求：R32（遇到新障碍时绕行原终点，仅修改自有 Nav2 代码）。
 # 添加逻辑：全部视觉候选按 5 cm 方格占用；检查完整车身和转角扫掠；
+# R40（用户“优化”）：先校验完整采样预算，再保守筛除扫掠范围外的点；
+# 空点云不再重复构建数百个车身凸包，近处点仍使用原整车扫掠检查。
 # 命令检查包含采集延迟与制动行程，不代替地图/紫色禁区、TF、强停及视觉时效门控。
 """Pure geometry for replan decisions and directional near-obstacle gating.
 
@@ -13,6 +15,7 @@ braking guarantee. Existing source freshness, TF, map and whole-body controller
 checks remain mandatory at the call site.
 """
 import math
+from dataclasses import dataclass
 from numbers import Integral
 
 import cv2
@@ -27,8 +30,38 @@ _POINT_MARGIN = 1e-6
 _MAX_SAMPLES = 20000
 
 
+@dataclass(frozen=True)
+class _PreparedGeometry:
+    """Frame-local validated geometry, with immutable detached array storage."""
+    centers: np.ndarray
+    corners: np.ndarray
+    radius: float
+
+
+def prepare_geometry(points_world, footprint):
+    """Prepare one immutable visual snapshot for repeated geometric checks.
+
+    Raises ValueError/TypeError/cv2.error for invalid input, just like the regular
+    input validator. Pass its result as ``points_world`` and ``None`` as the
+    footprint to the existing path_clear/command_clear entry points. No motion
+    permission, source timestamp, robot pose or collision result is cached.
+    Callers retain the original source-age and authorization checks each time.
+    """
+    centers, corners, radius = _inputs(points_world, footprint)
+    # Bytes-backed arrays cannot have write permission restored, unlike a plain
+    # ndarray with setflags(write=False). Mutating the source snapshot cannot
+    # silently change a geometry object already used by another worker.
+    centers = np.frombuffer(centers.tobytes(), dtype=float).reshape(-1, 2)
+    corners = np.frombuffer(corners.tobytes(), dtype=float).reshape(-1, 2)
+    return _PreparedGeometry(centers, corners, radius)
+
+
 def _inputs(points_world, footprint):
     """Return occupied-cell centers and a convex, padded footprint, or fail."""
+    if isinstance(points_world, _PreparedGeometry):
+        if footprint is not None:
+            raise ValueError('prepared geometry must use its original footprint')
+        return points_world.centers, points_world.corners, points_world.radius
     points = np.asarray(points_world, dtype=float)
     if points.size == 0:
         points = np.empty((0, 2), dtype=float)
@@ -104,36 +137,65 @@ def _trajectory_clear(poses, centers, corners, radius, center_sagitta=None):
 
     Command rollouts supply exact circular sample poses plus the center-arc
     sagitta so neither the moving center nor a turning body corner is skipped.
+    R40: all segment budgets are validated *before* any empty-cloud shortcut.
+    A bounding box may discard cells only when the entire swept body, the full
+    occupied cell and the same arc/numerical margins provably cannot intersect.
     """
     if not len(poses):
         return False
-    first = poses[0]
-    before = _polygon(corners, first)
-    if not _clear_polygon(before, centers, _POINT_MARGIN):
-        return False
+    segments = []
     checks = 0
-    previous = first
+    largest_margin = _POINT_MARGIN
+    previous = poses[0]
     for index, pose in enumerate(poses[1:]):
         da = math.atan2(math.sin(pose[2]-previous[2]), math.cos(pose[2]-previous[2]))
         count = max(1, math.ceil((math.hypot(pose[0]-previous[0], pose[1]-previous[1])
                                  + abs(da)*radius) / (_RESOLUTION*.25)))
-        if checks + count > _MAX_SAMPLES:
+        checks += count
+        if checks > _MAX_SAMPLES:
             return False
+        margin = _POINT_MARGIN + radius*(1-math.cos(abs(da)/(2*count)))
+        if center_sagitta is not None:
+            margin += center_sagitta[index]
+        if not math.isfinite(margin) or margin < _POINT_MARGIN:
+            return False
+        segments.append((da, count, margin))
+        largest_margin = max(largest_margin, margin)
+        previous = pose
+
+    # This bound encloses every rotated corner, every interpolated center and
+    # every conservatively expanded swept polygon. In particular it also keeps
+    # thin cells grazed during a pure turn or reverse motion. The cell half-size
+    # is included: testing just its center would wrongly discard edge contact.
+    extent = radius + _RESOLUTION/2 + largest_margin + 1e-6
+    low = poses[:, :2].min(axis=0) - extent
+    high = poses[:, :2].max(axis=0) + extent
+    if np.all(poses[:, 2] == poses[0, 2]):
+        # Exact translation has no rotating-corner bulge. A fixed-orientation
+        # footprint bound is tighter than its circumscribed circle, so a close
+        # parallel wall can be rejected in one pass without repeated hull work.
+        rotated = _polygon(corners, (0., 0., poses[0, 2]))
+        extent = _RESOLUTION/2 + largest_margin + 1e-6
+        low = poses[:, :2].min(axis=0) + rotated.min(axis=0) - extent
+        high = poses[:, :2].max(axis=0) + rotated.max(axis=0) + extent
+    centers = centers[np.all((centers >= low) & (centers <= high), axis=1)]
+    if not len(centers):
+        return True
+
+    before = _polygon(corners, poses[0])
+    if not _clear_polygon(before, centers, _POINT_MARGIN):
+        return False
+    previous = poses[0]
+    for pose, (da, count, margin) in zip(poses[1:], segments):
         for step in range(1, count+1):
             fraction = step/count
             current = (previous[0]+fraction*(pose[0]-previous[0]),
                        previous[1]+fraction*(pose[1]-previous[1]),
                        previous[2]+fraction*da)
             after = _polygon(corners, current)
-            # Rotation can bulge outside the convex hull of endpoint polygons.
-            # The same conservative arc margin is used by the existing checker.
-            margin = _POINT_MARGIN + radius*(1-math.cos(abs(da)/(2*count)))
-            if center_sagitta is not None:
-                margin += center_sagitta[index]
             if not _clear_polygon(_hull(before, after), centers, margin):
                 return False
             before = after
-            checks += 1
         previous = pose
     return True
 

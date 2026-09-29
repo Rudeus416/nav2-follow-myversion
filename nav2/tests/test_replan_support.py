@@ -154,7 +154,7 @@ class ReplanSupportTests(unittest.TestCase):
                         _buffer_m2={1:record})
         layer.nav=NS(lock=threading.RLock(),vision_enabled=True,
                      person_navigation=NS(obstacle_replan=NS(active=True)))
-        layer.semantic=NS(update=Mock(return_value=None))
+        layer.semantic=NS(set_enabled=Mock(),offer=Mock(),snapshot=Mock(return_value=None))
         layer._tick_locked=Mock()
         checks=[]
         def check_unlocked(*args):
@@ -202,7 +202,7 @@ class ReplanSupportTests(unittest.TestCase):
                           _buffer_m2={1:record})
         layer.nav = NS(lock=threading.RLock(), vision_enabled=True,
                        navigation_footprint=Mock(return_value=(FOOT,self.now)))
-        layer.semantic = NS(update=Mock(return_value=None), close=Mock())
+        layer.semantic = NS(set_enabled=Mock(),offer=Mock(),snapshot=Mock(return_value=None),close=Mock())
         layer._tick_locked = Mock()
         with patch('nav2.replan_support.monitor_route') as monitor:
             layer.tick(); layer.tick()

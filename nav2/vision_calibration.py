@@ -72,6 +72,7 @@ def attach(app, engine, motion, layer):
             except (KeyError,TypeError,ValueError) as exc:raise HTTPException(422,str(exc)) from exc
             nav=motion.navigation
             with nav.lock:
+                if hasattr(layer,'invalidate'):layer.invalidate()  # R37: invalidate in-flight work
                 nav.stop('应用 Nav2 视觉测距校准');nav.clear_preview()
                 layer.scale=scale;layer.last=None
                 layer.cells={};layer.camera_cells={};layer.diagnostics={}

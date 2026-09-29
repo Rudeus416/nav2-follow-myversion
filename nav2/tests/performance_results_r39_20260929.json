@@ -1,0 +1,112 @@
+{
+  "revision": "R39",
+  "date": "2026-09-29",
+  "user_selection": "降到 512，优先实时性",
+  "regressions": {
+    "passed": 488,
+    "seconds": 22.45,
+    "new_profile_tests": 21,
+    "new_integration_tests": 7
+  },
+  "prechange_slow_frames": [
+    {
+      "frame_id": 1,
+      "source_age": 18.424,
+      "input_wait": 0.051,
+      "inference": 18.371,
+      "after_inference": 0.002,
+      "direct_result": true,
+      "new_frame": true,
+      "tick_seconds": 0.001,
+      "first_read_age": 18.424,
+      "first_read_after_inference": 0.001,
+      "result_delivery": 0.0,
+      "mailbox_wait": 0.001,
+      "producer_interval": null,
+      "log_line": 129
+    },
+    {
+      "frame_id": 334,
+      "source_age": 1.754,
+      "input_wait": 0.047,
+      "inference": 1.706,
+      "after_inference": 0.002,
+      "direct_result": true,
+      "new_frame": true,
+      "tick_seconds": 0.001,
+      "first_read_age": 1.753,
+      "first_read_after_inference": 0.001,
+      "result_delivery": 0.0,
+      "mailbox_wait": 0.001,
+      "producer_interval": 1.802,
+      "log_line": 287
+    },
+    {
+      "frame_id": 373,
+      "source_age": 2.929,
+      "input_wait": 0.208,
+      "inference": 2.711,
+      "after_inference": 0.009,
+      "direct_result": true,
+      "new_frame": true,
+      "tick_seconds": 0.001,
+      "first_read_age": 2.928,
+      "first_read_after_inference": 0.008,
+      "result_delivery": 0.0,
+      "mailbox_wait": 0.008,
+      "producer_interval": 2.8,
+      "log_line": 351
+    },
+    {
+      "frame_id": 482,
+      "source_age": 3.234,
+      "input_wait": 0.121,
+      "inference": 3.112,
+      "after_inference": 0.002,
+      "direct_result": true,
+      "new_frame": true,
+      "tick_seconds": 0.001,
+      "first_read_age": 3.234,
+      "first_read_after_inference": 0.001,
+      "result_delivery": 0.0,
+      "mailbox_wait": 0.001,
+      "producer_interval": 3.754,
+      "log_line": 497
+    },
+    {
+      "frame_id": 553,
+      "source_age": 1.659,
+      "input_wait": 0.018,
+      "inference": 1.639,
+      "after_inference": 0.002,
+      "direct_result": true,
+      "new_frame": true,
+      "tick_seconds": 0.001,
+      "first_read_age": 1.659,
+      "first_read_after_inference": 0.001,
+      "result_delivery": 0.0,
+      "mailbox_wait": 0.001,
+      "producer_interval": 2.02,
+      "log_line": 565
+    }
+  ],
+  "protected_sha256": {
+    "control.py": "c6ff60e493ab28fd6b3ce024bd4a9b8caa6e8201153d9b33db10be5125501745",
+    "camera_server.py": "a201ef491d67535035415fc2e04f528cec9fbf59bd6f59f267f80a076ddfd95c",
+    "run.sh": "fb94c05792026e7131960eec564c0dc0ef863c025badfd7659c7a07d0978a408",
+    "frontend/index.html": "7d2f62432bba995a9e6b4c55336ed918f27d3d813dae7a97601316d9c331a2af",
+    "frontend/style.css": "8f719f00b7bea835dabaaef33cc36e706df47d5d7b946da237421ee576e68568",
+    "frontend/app.js": "5b09e2f46ea3f8a23c29b562f5fd6817502b19ac680faad9c61baf8db1cf1e3f",
+    "nav2_follow.py": "c66bdb87b055f6547a4c56c154a87d4885e35f8009259978180f5b6a20bd6bda"
+  },
+  "service_restarted": false,
+  "robot_commands_sent": false,
+  "real_inference_performance_retested": false,
+  "actual_scope": "New depth tasks while Nav2 vision is enabled; shared config, image/frame and original timestamps retained",
+  "limitations": [
+    "Network input cap only; full image depth output transfer unchanged",
+    "May reduce depth detail and affect same-frame person ranging",
+    "Already queued/in-flight jobs keep prior size; restart required to install adapter",
+    "Original 1.2-second zero-speed and 2-second cancel gates unchanged"
+  ]
+}

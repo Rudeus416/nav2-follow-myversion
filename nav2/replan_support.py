@@ -138,7 +138,19 @@ def capture_visual_safety(nav, world_points, source_at, footprint_snapshot=None)
     if body is not None:
         body = np.array(body, dtype=float, copy=True)
         body.setflags(write=False)
-    return dict(points=points, source_at=source_at, footprint=body, footprint_at=body_at)
+    snapshot=dict(points=points, source_at=source_at, footprint=body, footprint_at=body_at)
+    # R40: prepare cells/body once per frame outside nav.lock. Command checks
+    # still evaluate the actual pose, output velocity and original age each time.
+    if body is not None:
+        from nav2.replan_safety import prepare_geometry
+        import cv2
+        try:
+            snapshot['geometry']=prepare_geometry(points,body)
+        except (ValueError,TypeError,OverflowError,cv2.error):
+            # Retain invalid evidence for the existing fail-closed checks.
+            # In particular a preparation error is never an empty safe cloud.
+            pass
+    return snapshot
 
 
 def remaining_index(nav, path, pose):
@@ -161,11 +173,17 @@ def remaining_index(nav, path, pose):
     return index
 
 
-def monitor_route(nav):
-    """One full-cloud route check per visual frame, outside the control lock."""
+def monitor_route(nav, valid=None):
+    """R40: full-cloud check; optional worker ownership guard runs under nav.lock.
+
+    A canceled worker/configuration may finish geometry, but cannot pause, stop
+    or replan a later task. Direct synchronous callers keep the same behavior.
+    """
     from nav2.replan_safety import path_clear
     from nav2_follow import VisionStale
     with nav.lock:
+        if valid is not None and not valid():
+            return
         task = recovery(nav)
         if not task or not task.active or task.holding or not nav.enabled:
             return
@@ -194,9 +212,13 @@ def monitor_route(nav):
             return
         # Past waypoints must not make an obstacle behind the car cancel a route.
         index = remaining_index(nav, path, pose)
-    clear = path_clear(path, sample['points'], sample['footprint'],
+    geometry=sample.get('geometry')
+    clear = path_clear(path, geometry if geometry is not None else sample['points'],
+                       None if geometry is not None else sample['footprint'],
                        start_index=index, robot_pose=pose)
     with nav.lock:
+        if valid is not None and not valid():
+            return
         if (task is not recovery(nav) or not task.active or task.holding
                 or task.current_path is not path or nav.generation != generation
                 or getattr(nav, 'vision_safety', None) is not sample or not nav.enabled):
@@ -224,8 +246,10 @@ def guard_command(nav, pose, output):
         return True
     from nav2.replan_safety import command_clear
     sample = visual_snapshot(nav)
-    clear = command_clear(sample['points'], sample['footprint'], pose, *output,
-                          sample['source_at'], time.monotonic())
+    geometry=sample.get('geometry')
+    clear = command_clear(geometry if geometry is not None else sample['points'],
+                          None if geometry is not None else sample['footprint'],
+                          pose, *output, sample['source_at'], time.monotonic())
     # The caller holds nav.lock: identity cannot change, age can. Never release
     # a twist or count a recovery attempt using evidence expired during geometry.
     visual_snapshot(nav)

@@ -81,7 +81,7 @@ class VisionSchedulerTests(unittest.TestCase):
         layer=self.layer(Mock())
         layer.nav.vision_enabled=True
         stamp=time.monotonic();layer.nav.vision_at=stamp
-        layer.last=(1,10,False)
+        layer.last=(1,1,10,False)
         record=NS(config_version=1,frame=NS(source_at=stamp,stream_epoch=1,frame_id=10))
         layer._tick_locked([record],1)
         self.assertEqual(layer.nav.vision_at,stamp)

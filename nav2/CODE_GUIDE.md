@@ -363,3 +363,70 @@ R24 标注轮次只插入注释和文档，不改变默认开关、参数、代�
 
 源码只插入注释：比较修改前后的行差异，并对 Python AST、配置解析和 JavaScript 语法进行验证；不启动小车、不改变服务状态。
 
+
+
+<a id="r35"></a>
+
+### R35：行驶途中视觉超时后“怎么修改”
+
+本轮需求承接“只修改自己的 nav2 代码”。[depth_mailbox.py](depth_mailbox.py) 发布结果通知及接收时刻，[vision_layer.py](vision_layer.py) 事件唤醒与首次消费计时，[semantic_obstacles.py](semantic_obstacles.py) 避免重复/过期语义推理，[static_wall_cache.py](static_wall_cache.py) 复用完全一致的静态墙/外边界栅格。所有车身、定位、速度和视觉时效门槛保留。
+
+[test_vision_latency.py](tests/test_vision_latency.py) 验证通知不丢失、断流健康轮询、结果时刻关联、语义去重/过期/入队重试；[test_static_wall_cache.py](tests/test_static_wall_cache.py) 验证旋转地图、增删禁区、TF/窗口/边界切换、无视觉残留和重建故障。375 项离线导航回归通过。范围和现场限制见 [R35 自检](AUDIT.md#r35)。
+
+<a id="r36"></a>
+
+### R36：先模拟监测冲突或者延时
+
+对应用户原话：“先模拟监测有没有冲突或者延时等问题”。[simulate_vision_timing.py](tests/simulate_vision_timing.py) 使用真实自有状态机和虚拟时间构造慢帧/断流/取消/语义延迟/近距提示冲突；[simulate_vision_contention.py](tests/simulate_vision_contention.py) 使用真实线程和本地假发布回调验证两类锁等待。均不启动相机、模型、底盘或真实 ROS 节点。本轮仅检查、不改生产逻辑；[报告](SIMULATION_REPORT.md) 记录发现与限制，[结果](tests/simulation_results_20260929.json) 保存输入条件和输出。
+
+
+<a id="r37"></a>
+
+### R37：修复模拟时出现的问题
+
+> 修复这些模拟时出现的问题
+
+| 自有代码位置 | 添加/修改逻辑 |
+|---|---|
+| [vision_layer.py](vision_layer.py) | 快照、锁外计算/发布、代次复核后短锁提交；危险先停车，无障碍证据等当前图发布；短暂过期统一暂停；变更重置安全帧计数 |
+| [vision_epoch.py](vision_epoch.py) | 只在自有接入中包装引擎实例 configure；一致配置/流快照，无需等待融合锁；失败与关闭拒绝晚结果 |
+| [semantic_dispatch.py](semantic_dispatch.py) | 单个 owner 串行持有自有 SemanticWorker，主视觉循环只投递最新引用/读取缓存；代际隔离、同帧语义 |
+| [semantic_obstacles.py](semantic_obstacles.py) | 关闭未启动/部分初始化的进程和队列；确认退出前保留所有权，防并发第二进程 |
+| [vision_toggle.py](vision_toggle.py)、[vision_calibration.py](vision_calibration.py) | 停车变更时失效正在计算的快照；快速 off/on 清语义代次 |
+| [test_vision_commit.py](tests/test_vision_commit.py) | 真实消费方法的取消、校准、配置、发布和关闭竞态回归；真实危险及锁外计算验证 |
+| [test_vision_epoch.py](tests/test_vision_epoch.py)、[test_semantic_dispatch.py](tests/test_semantic_dispatch.py)、[test_semantic_cleanup.py](tests/test_semantic_cleanup.py) | 配置并发/异常、异步语义不阻塞、同帧去重、部分初始化及退出失败清理 |
+| [simulate_vision_timing.py](tests/simulate_vision_timing.py)、[simulate_vision_contention.py](tests/simulate_vision_contention.py) | 保留 R36 输入场景，将复现改为修复后断言；新结果独立保存，不覆盖修复前证据 |
+
+完整 418 项回归、14 条持续时间线及线程探针通过。仅修改 `nav2/`，未连接底盘。连续慢源数据的限制与具体对比见 [模拟报告](SIMULATION_REPORT.md)。
+
+
+<a id="r38"></a>
+
+### R38：监测本轮停止原因之后“能不能修复这个问题”
+
+仅修改自有 `nav2/`。这里的 R38 是本项目需求索引，不是 ROS/Nav2 版本号。
+
+| 自有代码位置 | 用途和本次添加/修改逻辑 |
+|---|---|
+| [semantic_runtime.py](semantic_runtime.py) | 独立子进程资源限制；在自有模型子类后端初始化后恢复单线程，降低线程优先级，不改第三方库和原模型 |
+| [semantic_budget.py](semantic_budget.py) | 根据深度时效/结果间隔暂停额外 YOLOE 提交，5 个健康新帧且 3 秒稳定后恢复 |
+| [semantic_request.py](semantic_request.py) | 保留真实采集时间，排队、初始化和预处理后过期都跳过该次推理 |
+| [semantic_obstacles.py](semantic_obstacles.py) | 接入限额/预算/丢弃响应；暂停仍收包，不重新提交同一旧帧，不隐藏模型退出错误 |
+| [depth_groups.py](depth_groups.py)、[vision_layer.py](vision_layer.py) | 一次分组排序代替逐标签百分位扫描，保留原几何选择结果和碰撞阈值 |
+| [test_semantic_runtime.py](tests/test_semantic_runtime.py)、[test_semantic_budget.py](tests/test_semantic_budget.py)、[test_semantic_budget_worker.py](tests/test_semantic_budget_worker.py)、[test_semantic_request.py](tests/test_semantic_request.py)、[test_depth_groups.py](tests/test_depth_groups.py) | 新增 42 项，覆盖后端重建、预算恢复、过期确认、下一帧恢复和像素等价性 |
+
+[修复报告](PERFORMANCE_REPORT.md) 记录本轮日志证据、460 项完整回归、隔离真模型验证及尚需实车确认的限制；未改变原 1.2 秒零速、2 秒取消规则。
+
+
+<a id="r39"></a>
+
+### R39：数据依然超时；用户选择“降到 512，优先实时性”
+
+| 自有代码位置 | 添加/修改的逻辑 |
+|---|---|
+| [depth_profile.py](depth_profile.py) | 只对当前深度实例的新任务应用 Nav2 专用输入上限；复制不可变任务/设置，保留原帧和采集时间；开关/关闭不清原队列，退出只恢复仍由自己持有的入口 |
+| [vision_layer.py](vision_layer.py) | 在创建资源前校验上限，安装适配器；正常关闭和启动异常均清理；首次消费计时记录实际 `depth_imgsz` |
+| [vision_toggle.py](vision_toggle.py) | 专用只读接口返回 `depth_profile` 档位和错误；不修改原配置接口或原前端 |
+| [tests/test_depth_profile.py](tests/test_depth_profile.py)、[tests/test_depth_profile_integration.py](tests/test_depth_profile_integration.py) | 独立任务/同帧身份、原设置不变、开关和退出、拒绝入队/原异常、无锁委托、非法设置及构造失败恢复 |
+
+原因、局限和生效确认见 [R39 修复记录](PERFORMANCE_REPORT.md#r39)。R39 是需求索引，不是库版本。所有改动位于自有 `nav2/`。

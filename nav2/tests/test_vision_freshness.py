@@ -22,7 +22,7 @@ class VisionFreshnessTests(unittest.TestCase):
                         _buffer_m2=dict(enumerate(records)))
         layer.nav=NS(lock=threading.RLock(), vision_enabled=True)
         layer.semantic=Mock()
-        layer.semantic.update.return_value=packet
+        layer.semantic.snapshot.return_value=packet
         if direct is not None:
             layer._depth_mailbox=NS(latest=lambda version,epoch:direct)
         layer._tick_locked=Mock()

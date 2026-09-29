@@ -1,7 +1,7 @@
 # 【内容标注】用途：视觉障碍层网页开关与状态。
-# 对应用户需求：R07 R22（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 对应用户需求：R07 R22 R39（原话及追溯边界见 nav2/CODE_GUIDE.md）。
 # 添加/修改逻辑：独立开关视觉参与导航；管理视觉工作线程、数据时效和诊断快照。
-# 本次仅加注释；需求关联不是精确创建/提交记录。
+# R39 增加只读深度尺寸档位状态；需求关联不是精确创建/提交记录。
 """Runtime switch for the optional Nav2 vision costmap layer."""
 import threading
 from fastapi import HTTPException
@@ -53,6 +53,8 @@ def attach(app, engine, motion):
     @app.get('/api/nav2/vision-enabled')
     def state():
         import time
+        profile=getattr(layer,'depth_profile',None)
+        profile_status=profile.status() if profile is not None else {}
         with nav.lock:
             fresh=nav.vision_enabled and nav.vision_at>0 and time.monotonic()-nav.vision_at<=1.2
             return {'enabled':nav.vision_enabled,'stopped':motion.estop,
@@ -61,6 +63,7 @@ def attach(app, engine, motion):
                     'map_wall_count':len(layer.cells) if fresh else 0,
                     'diagnostics':dict(layer.diagnostics) if fresh else {},
                     'timing':dict(getattr(layer,'timing',{})),
+                    'depth_profile':profile_status,
                     'semantic':layer.semantic.status(),
                     'semantic_frame':layer.semantic_preview['frame_id'] if layer.semantic_preview and fresh else None,
                     'reason':layer.diagnostics.get('reason','等待视觉候选') if fresh else '视觉数据未就绪或已过期'}
@@ -72,6 +75,7 @@ def attach(app, engine, motion):
         with motion.lock:
             if not motion.estop:raise HTTPException(409,'请先强制停止，再切换视觉障碍检测')
             with nav.lock:
+                if hasattr(layer,'invalidate'):layer.invalidate()  # R37: invalidate in-flight work
                 nav.stop('切换视觉障碍检测')
                 nav.clear_preview()
                 try:
@@ -84,6 +88,7 @@ def attach(app, engine, motion):
                     layer.switch_failed=True
                     raise HTTPException(503,str(exc)) from exc
                 layer.switch_failed=False
+                layer.semantic.set_enabled(enabled)  # R37: catch even off/on between ticks
                 layer.last=None;layer.cells={};layer.camera_cells={};layer.diagnostics={}
                 nav.vision_count=0;nav.vision_at=0.
                 nav.vision_error='等待新的视觉障碍数据' if enabled else ''

@@ -1,0 +1,542 @@
+{
+  "revision": "R38",
+  "date": "2026-09-29",
+  "scope": "Own nav2/ only; no service restart, camera capture, ROS nodes or robot motion",
+  "regressions": {
+    "passed": 460,
+    "seconds": 18.942,
+    "new_tests": 42
+  },
+  "grouping_microbenchmark": {
+    "synthetic": true,
+    "shape": [
+      60,
+      80
+    ],
+    "labels": 300,
+    "reference_median_ms": 63.879,
+    "grouped_median_ms": 3.68,
+    "same_selection_verified": true,
+    "end_to_end_vehicle_timing": false
+  },
+  "timing_simulation": {
+    "kind": "offline synthetic timing audit; no hardware IO",
+    "fixed_behavior_assertions_passed": true,
+    "scenarios": [
+      {
+        "mode": "point",
+        "scenario": "fresh_5hz",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 0.0,
+        "command_distance_m": 1.9766,
+        "safe_fresh_frames": 60,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "point",
+        "scenario": "slow_but_fresh",
+        "source_latency_s": 0.6,
+        "arrival_period_s": 0.5,
+        "duration_s": 12.0,
+        "zero_output_percent": 0.0,
+        "command_distance_m": 1.9766,
+        "safe_fresh_frames": 24,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "point",
+        "scenario": "threshold_jitter",
+        "source_latency_s": 0.9,
+        "arrival_period_s": 0.8,
+        "duration_s": 12.0,
+        "zero_output_percent": 69.5,
+        "command_distance_m": 0.1427,
+        "safe_fresh_frames": 15,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "point",
+        "scenario": "slow_1hz",
+        "source_latency_s": 1.05,
+        "arrival_period_s": 1.0,
+        "duration_s": 12.0,
+        "zero_output_percent": 98.67,
+        "command_distance_m": 0.0043,
+        "safe_fresh_frames": 12,
+        "canceled_at_s": 0.96,
+        "stop_reason": "视觉障碍数据持续超时，取消导航",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "point",
+        "scenario": "brief_gap",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 1.67,
+        "command_distance_m": 1.8884,
+        "safe_fresh_frames": 56,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "point",
+        "scenario": "long_gap",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 69.5,
+        "command_distance_m": 0.5629,
+        "safe_fresh_frames": 45,
+        "canceled_at_s": 4.46,
+        "stop_reason": "视觉障碍数据持续超时，取消导航",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "point",
+        "scenario": "user_cancel",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 83.33,
+        "command_distance_m": 0.3078,
+        "safe_fresh_frames": 60,
+        "canceled_at_s": 2.0,
+        "stop_reason": "模拟用户取消",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "fresh_5hz",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 0.0,
+        "command_distance_m": 1.9766,
+        "safe_fresh_frames": 60,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "slow_but_fresh",
+        "source_latency_s": 0.6,
+        "arrival_period_s": 0.5,
+        "duration_s": 12.0,
+        "zero_output_percent": 0.0,
+        "command_distance_m": 1.9766,
+        "safe_fresh_frames": 24,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "threshold_jitter",
+        "source_latency_s": 0.9,
+        "arrival_period_s": 0.8,
+        "duration_s": 12.0,
+        "zero_output_percent": 69.5,
+        "command_distance_m": 0.1427,
+        "safe_fresh_frames": 15,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "slow_1hz",
+        "source_latency_s": 1.05,
+        "arrival_period_s": 1.0,
+        "duration_s": 12.0,
+        "zero_output_percent": 98.67,
+        "command_distance_m": 0.0043,
+        "safe_fresh_frames": 12,
+        "canceled_at_s": 0.96,
+        "stop_reason": "视觉障碍数据持续超时，取消导航",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "brief_gap",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 1.67,
+        "command_distance_m": 1.8884,
+        "safe_fresh_frames": 56,
+        "canceled_at_s": null,
+        "stop_reason": "",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "long_gap",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 69.5,
+        "command_distance_m": 0.5629,
+        "safe_fresh_frames": 45,
+        "canceled_at_s": 4.46,
+        "stop_reason": "视觉障碍数据持续超时，取消导航",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      },
+      {
+        "mode": "person",
+        "scenario": "user_cancel",
+        "source_latency_s": 0.35,
+        "arrival_period_s": 0.2,
+        "duration_s": 12.0,
+        "zero_output_percent": 83.33,
+        "command_distance_m": 0.3078,
+        "safe_fresh_frames": 60,
+        "canceled_at_s": 2.0,
+        "stop_reason": "模拟用户取消",
+        "motion_after_cancel": false,
+        "stale_motion_outputs": 0
+      }
+    ],
+    "optional_stage_probe": {
+      "scenario": "optional_semantic_stage_300ms",
+      "age_before_semantic_s": 0.95,
+      "age_after_semantic_s": 0.95,
+      "injected_semantic_hold_s": 0.3,
+      "observed_semantic_hold_s": 0.301289,
+      "tick_wall_seconds": 0.014202,
+      "tick_finished_while_semantic_blocked": true,
+      "fresh_result_accepted": true,
+      "prior_stamp_kept": false,
+      "output": [
+        0.006,
+        0.004
+      ]
+    },
+    "near_pause_conflict": {
+      "scenario": "stale_near_hint_during_validated_detour",
+      "entry_orders": [
+        {
+          "first_entry": "velocity",
+          "source_age_s": 1.3,
+          "paused_states": {
+            "velocity": {
+              "enabled": true,
+              "paused": true,
+              "fixed_goal": true,
+              "detour_active": true,
+              "stop_reason": ""
+            },
+            "visual": {
+              "enabled": true,
+              "paused": true,
+              "fixed_goal": true,
+              "detour_active": true,
+              "stop_reason": ""
+            }
+          },
+          "expired_source_age_s": 2.01,
+          "expired_state": {
+            "enabled": false,
+            "paused": true,
+            "fixed_goal": false,
+            "detour_active": false,
+            "stop_reason": "视觉障碍数据持续超时，取消导航"
+          },
+          "fresh_frame_after_cancel_output": [
+            0.0,
+            0.0
+          ],
+          "fresh_frame_did_not_revive": true
+        },
+        {
+          "first_entry": "visual",
+          "source_age_s": 1.3,
+          "paused_states": {
+            "visual": {
+              "enabled": true,
+              "paused": true,
+              "fixed_goal": true,
+              "detour_active": true,
+              "stop_reason": ""
+            },
+            "velocity": {
+              "enabled": true,
+              "paused": true,
+              "fixed_goal": true,
+              "detour_active": true,
+              "stop_reason": ""
+            }
+          },
+          "expired_source_age_s": 2.01,
+          "expired_state": {
+            "enabled": false,
+            "paused": true,
+            "fixed_goal": false,
+            "detour_active": false,
+            "stop_reason": "视觉障碍数据持续超时，取消导航"
+          },
+          "fresh_frame_after_cancel_output": [
+            0.0,
+            0.0
+          ],
+          "fresh_frame_did_not_revive": true
+        }
+      ]
+    }
+  },
+  "contention_simulation": {
+    "simulation_only": true,
+    "robot_or_ros_nodes_started": false,
+    "fixed_behavior_assertions_passed": true,
+    "actual_methods": [
+      "VisionLayer.tick",
+      "VisionLayer._tick_locked",
+      "Nav2Follower.velocity",
+      "Nav2Follower.healthy_pose"
+    ],
+    "synthetic": "Engine-lock hold and local fake publisher wait; not hardware timings",
+    "cases": [
+      {
+        "case": "baseline",
+        "tick_seconds": 0.019981,
+        "velocity_seconds": 0.000107,
+        "output": [
+          0.12,
+          0.1
+        ],
+        "published": 1,
+        "source_stamp_preserved": true
+      },
+      {
+        "case": "engine_lock_contention",
+        "injected_hold_seconds": 0.35,
+        "observed_hold_after_tick_entry_seconds": 0.351325,
+        "mailbox_ready_before_release": true,
+        "tick_blocked_until_engine_release": false,
+        "tick_finished_while_engine_locked": true,
+        "tick_seconds": 0.009784,
+        "first_read_after_inference_seconds": 0.02,
+        "mailbox_wait_seconds": 0.0,
+        "velocity_finished_while_engine_locked": true,
+        "velocity_seconds": 0.00014,
+        "output": [
+          0.12,
+          0.1
+        ],
+        "published": 1,
+        "source_stamp_preserved": true
+      },
+      {
+        "case": "slow_publish_outside_nav_lock",
+        "injected_hold_seconds": 0.35,
+        "observed_publish_seconds": 0.351124,
+        "tick_seconds": 0.360355,
+        "velocity_blocked_until_publish_release": false,
+        "velocity_finished_while_publish_blocked": true,
+        "velocity_seconds": 0.000133,
+        "nominal_control_period_seconds": 0.02,
+        "output": [
+          0.12,
+          0.1
+        ],
+        "command_age_at_velocity_return_seconds": 0.010017,
+        "vision_age_at_velocity_return_seconds": 0.109907,
+        "enabled_after_release": true,
+        "vision_error": "",
+        "published": 1,
+        "source_stamp_preserved": true
+      }
+    ]
+  },
+  "real_isolated_semantic_worker": {
+    "probe": "R38 real isolated optional YOLOE worker",
+    "device": "cpu",
+    "model": "/home/metaiot/Workspace/visual_car/nav2/models/yoloe-26n-seg-pf.pt",
+    "startup_seconds": 2.945,
+    "synthetic_image": true,
+    "no_robot_or_ros": true,
+    "results": [
+      {
+        "test": "expired_queued_frame",
+        "response": "dropped"
+      },
+      {
+        "test": "fresh_submission",
+        "frame": 2,
+        "response": "dropped",
+        "wall_seconds": 2.105
+      },
+      {
+        "test": "fresh_submission",
+        "frame": 3,
+        "response": "result",
+        "wall_seconds": 1.177
+      }
+    ]
+  },
+  "originals_sha256": {
+    "control.py": "c6ff60e493ab28fd6b3ce024bd4a9b8caa6e8201153d9b33db10be5125501745",
+    "camera_server.py": "a201ef491d67535035415fc2e04f528cec9fbf59bd6f59f267f80a076ddfd95c",
+    "run.sh": "fb94c05792026e7131960eec564c0dc0ef863c025badfd7659c7a07d0978a408",
+    "frontend/index.html": "7d2f62432bba995a9e6b4c55336ed918f27d3d813dae7a97601316d9c331a2af",
+    "frontend/style.css": "8f719f00b7bea835dabaaef33cc36e706df47d5d7b946da237421ee576e68568",
+    "frontend/app.js": "5b09e2f46ea3f8a23c29b562f5fd6817502b19ac680faad9c61baf8db1cf1e3f",
+    "nav2_follow.py": "c66bdb87b055f6547a4c56c154a87d4885e35f8009259978180f5b6a20bd6bda"
+  },
+  "limitations": [
+    "No physical vehicle validation",
+    "Logged upstream depth latency spike not proven to have one sole cause",
+    "Optional YOLOE pauses under pressure; depth processing and original safety timeouts remain enabled"
+  ],
+  "real_runtime_probe": {
+    "source": "Previously completed isolated agent probe; transcribed from original tool result, not rerun",
+    "ok": true,
+    "model": "nav2/models/yoloe-26n-seg-pf.pt",
+    "input": "640x480 synthetic zero image",
+    "device": "cpu",
+    "network": "disabled",
+    "load_s": 0.238,
+    "first_predict_s": 3.259,
+    "total_s": 6.176,
+    "detections": 0,
+    "scope": "Resource binding probe only, before subsequent RequestFreshness integration",
+    "observations": [
+      {
+        "phase": "runtime_initialized",
+        "elapsed_s": 2.38,
+        "torch_threads": 1,
+        "interop_threads": 1,
+        "cv2_threads": 1,
+        "pools": [
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openmp",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ]
+        ],
+        "nice_min": 10,
+        "nice_max": 10,
+        "os_threads": 1
+      },
+      {
+        "phase": "setup_complete_before_forward",
+        "elapsed_s": 3.252,
+        "torch_threads": 1,
+        "interop_threads": 1,
+        "cv2_threads": 1,
+        "pools": [
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openmp",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ]
+        ],
+        "nice_min": 10,
+        "nice_max": 10,
+        "os_threads": 7
+      },
+      {
+        "phase": "model_forward_entry",
+        "elapsed_s": 5.016,
+        "torch_threads": 1,
+        "interop_threads": 1,
+        "cv2_threads": 1,
+        "pools": [
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openmp",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ]
+        ],
+        "nice_min": 10,
+        "nice_max": 10,
+        "os_threads": 7
+      },
+      {
+        "phase": "prediction_complete",
+        "elapsed_s": 6.176,
+        "torch_threads": 1,
+        "interop_threads": 1,
+        "cv2_threads": 1,
+        "pools": [
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openmp",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ],
+          [
+            "openblas",
+            1
+          ]
+        ],
+        "nice_min": 10,
+        "nice_max": 10,
+        "os_threads": 7
+      }
+    ],
+    "note": "model_forward_entry sampled by real forward_pre_hook; existing OS thread count is not active computation pool size"
+  }
+}

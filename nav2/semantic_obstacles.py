@@ -1,9 +1,11 @@
 # 【内容标注】用途：独立语义物体检测工作进程。
-# 对应用户需求：R09 R08（原话及追溯边界见 nav2/CODE_GUIDE.md）。
+# 对应用户需求：R09 R08 R38（原话及追溯边界见 nav2/CODE_GUIDE.md）。
 # 添加/修改逻辑：提取 YOLO 实例区域辅助最近候选选择；独立模型/进程，不替换原人物检测链路。
-# 本次仅加注释；需求关联不是精确创建/提交记录。
+# R35 阻止重复/过期帧提交；只在成功入队后推进去重和节流状态。
 """Independent YOLOE worker for Nav2; never shares the person tracker/model."""
 import multiprocessing as mp
+import math
+import logging
 import os
 from pathlib import Path
 import queue
@@ -47,10 +49,15 @@ def instance_masks(objects, width=80, height=60):
 def _worker(requests, responses, model_path, device):
     # All global torch settings and model state stay in this separate process.
     try:
-        import torch
-        torch.set_num_threads(1)
+        from nav2.semantic_runtime import SemanticRuntime
+        runtime=SemanticRuntime()
+        torch=runtime.torch
         from ultralytics import YOLOE
-        model=YOLOE(model_path)
+        model=runtime.model(YOLOE,model_path)
+        from nav2.semantic_request import RequestFreshness,SemanticRequestExpired
+        freshness=RequestFreshness()
+        runtime.before_inference=freshness  # R38: recheck after preprocessing
+        model.add_callback('on_predict_start',freshness)
         device=('0' if torch.cuda.is_available() else 'cpu') if device=='auto' else device
         allowed=[i for i,name in model.names.items() if name in OBSTACLE_LABELS]
         if not allowed:raise ValueError('模型词表不含配置的实体障碍类别')
@@ -58,11 +65,13 @@ def _worker(requests, responses, model_path, device):
         while True:
             job=requests.get()
             if job is None:return
-            token,image=job
+            token,image,source_at=job
             try:
+                freshness.begin(source_at)
                 result=model.predict(image,imgsz=640,device=device,conf=.20,verbose=False,
                                      max_det=30,retina_masks=True,classes=allowed)[0]
                 responses.put(('result',token,detections(result)))
+            except SemanticRequestExpired as exc:responses.put(('dropped',token,str(exc)))
             except Exception as exc:responses.put(('error',token,str(exc)))
     except Exception as exc:responses.put(('error',None,str(exc)))
 
@@ -74,16 +83,28 @@ class SemanticWorker:
         self.enabled=os.environ.get('NAV2_VISION_YOLO','1')=='1'
         self.path=Path(os.environ.get('NAV2_YOLO_MODEL',str(MODEL))).resolve()
         self.process=None;self.pending=None;self.latest=None;self.last_offer=0.
+        self.last_submitted=None
         self.attempted=False;self.message='等待启用视觉障碍检测' if self.enabled else 'YOLOE 已关闭'
+        from nav2.semantic_budget import SemanticBudget
+        self.budget=SemanticBudget();self.resource_budget={}
+        self._budget_paused=None
 
     # 【职责 / R09 R08】update：提交或读取异步语义结果，保持帧关联。
     def update(self, record):
         if not self.enabled:return None
         now=time.monotonic()
-        if self.process is None and not self.attempted:
+        if self.process is None and not self.attempted and not self.path.is_file():
             self.attempted=True
-            if not self.path.is_file():
-                self.message='YOLOE 权重缺失：'+str(self.path);return None
+            self.message='YOLOE 权重缺失：'+str(self.path);return None
+        # R38：只减自有附加语义工作量。预算暂停不卸载模型，仍收取在途响应。
+        self.resource_budget=self.budget.observe(record,now)
+        paused=self.resource_budget['paused']
+        if paused!=self._budget_paused:
+            self._budget_paused=paused
+            logging.getLogger(__name__).warning('附加语义预算：%s；%s',
+                '暂停新任务，深度避障继续' if paused else '允许新任务',self.resource_budget)
+        if self.process is None and not self.attempted and not paused:
+            self.attempted=True
             ctx=mp.get_context('spawn')
             self.requests=ctx.Queue(maxsize=1);self.responses=ctx.Queue(maxsize=2)
             self.process=ctx.Process(target=_worker,args=(self.requests,self.responses,str(self.path),os.environ.get('NAV2_YOLO_DEVICE','cpu')),daemon=True)
@@ -94,18 +115,34 @@ class SemanticWorker:
             except queue.Empty:break
             if kind=='ready':self.message='YOLOE 已加载，等待识别'
             elif kind=='error':self.message='YOLOE 失败：'+data;self.pending=None;self.latest=None
-            elif self.pending is not None and token==self.pending[0]:
+            elif kind=='dropped' and self.pending is not None and token==self.pending[0]:
+                self.pending=None;self.message=str(data)
+            elif kind=='result' and self.pending is not None and token==self.pending[0]:
                 self.latest=(self.pending[1],data);self.pending=None
                 self.message='YOLOE 本帧未识别到物体' if not data else 'YOLOE：'+', '.join(dict.fromkeys(x['label'] for x in data))
         if not self.process.is_alive():self.message='YOLOE 子进程退出，请重启视觉服务';return None
-        # One in-flight frame, <=2 Hz, no backlog and no inference under ROS locks.
-        if self.pending is None and now-self.last_offer>=.5:
-            token=(record.frame.stream_epoch,record.frame.frame_id)
+        # R35: polling is not a new observation. Never spend inference on an
+        # already submitted/expired frame. Still drain responses above so stale
+        # inputs cannot leave a completed request permanently marked in flight.
+        if record is None:return None
+        now=time.monotonic()
+        token=(record.config_version,record.frame.stream_epoch,record.frame.frame_id)
+        source_at=record.frame.source_at
+        previous=self.last_submitted
+        new_frame=(previous is None or token[:2]!=previous[0][:2]
+                   or (token[2]>previous[0][2] and source_at>previous[1]))
+        if (not paused and self.pending is None and now-self.last_offer>=.5 and new_frame
+                and math.isfinite(source_at) and 0<=now-source_at<=1.2):
             image=record.frame.image
             small=cv2.resize(image,(640,round(image.shape[0]*640/image.shape[1])))
-            try:self.requests.put_nowait((token,small))
-            except queue.Full:pass
-            else:self.pending=(token,record);self.last_offer=now
+            # Resizing can take time on a loaded board. Check again before offer.
+            submitted_at=time.monotonic()
+            if 0<=submitted_at-source_at<=1.2:
+                try:self.requests.put_nowait((token,small,source_at))
+                except queue.Full:pass
+                else:
+                    self.pending=(token,record);self.last_offer=submitted_at
+                    self.last_submitted=(token,source_at)
         if self.latest and self.latest[0].config_version==record.config_version and self.latest[0].frame.stream_epoch==record.frame.stream_epoch and now-self.latest[0].frame.source_at<=1.2:
             return self.latest
         return None
@@ -115,14 +152,46 @@ class SemanticWorker:
         now=time.monotonic()
         latest=self.latest
         fresh=bool(latest and now-latest[0].frame.source_at<=1.2)
-        return {'enabled':self.enabled,'message':self.message,'fresh':fresh,
+        budget=dict(getattr(self,'resource_budget',{}))
+        # R38：预算提示附在模型状态后，暂停时也保留加载/退出/失败原因。
+        message=self.message
+        if budget.get('paused'):message+='；'+budget['reason']+'；深度避障继续'
+        return {'enabled':self.enabled,'message':message,'fresh':fresh,'resource_budget':budget,
                 'objects':[{k:o[k] for k in ('label','confidence')} for o in latest[1]] if fresh else []}
 
-    # 【职责 / R09 R08】close：结束自有语义进程。
+    # 【职责 / R09 R08 R37】close：串行清理正常运行或部分初始化的语义进程。
     def close(self):
-        if self.process is not None:
-            if self.process.is_alive():self.process.terminate()
-            self.process.join(timeout=2.)
-            self.requests.cancel_join_thread();self.responses.cancel_join_thread()
-            self.requests.close();self.responses.close()
-        self.process=None;self.pending=None;self.latest=None;self.attempted=False
+        self.pending=None;self.latest=None
+        self.last_submitted=None;self.last_offer=0.
+        # R37: retain ownership until the old process has actually stopped.
+        # A failed cleanup must not permit update() to start a second process.
+        self.attempted=True
+        process=self.process
+        if process is not None:
+            if process.is_alive():process.terminate()
+            # start() can raise after assigning self.process. Joining an
+            # unstarted Process raises AssertionError and used to prevent reset.
+            if process.pid is not None:process.join(timeout=2.)
+            if process.is_alive():
+                self.message='YOLOE 子进程仍在退出，等待清理重试'
+                raise RuntimeError(self.message)
+            process.close()
+            self.process=None
+        # Queue construction can fail between requests and responses. Close
+        # every queue that exists, even if cleanup of the other one fails.
+        failure=None
+        for name in ('requests','responses'):
+            channel=getattr(self,name,None)
+            if channel is None:continue
+            try:channel.cancel_join_thread()
+            except Exception as exc:
+                if failure is None:failure=exc
+            try:channel.close()
+            except Exception as exc:
+                if failure is None:failure=exc
+            else:setattr(self,name,None)
+        if failure is not None:
+            raise RuntimeError('YOLOE 队列清理失败：'+str(failure)) from failure
+        self.attempted=False
+        from nav2.semantic_budget import SemanticBudget
+        self.budget=SemanticBudget();self.resource_budget={};self._budget_paused=None
