@@ -1,0 +1,266 @@
+{
+  "equivalence_cases": 1400,
+  "rounds_per_case": 9,
+  "scope": "offline synthetic geometry; not robot end-to-end latency",
+  "results": [
+    {
+      "kind": "path",
+      "points": 0,
+      "side_m": 0.6,
+      "baseline": {
+        "median_ms": 15.669859000013275,
+        "min_ms": 15.601920999984031,
+        "max_ms": 15.776134000020647
+      },
+      "optimized": {
+        "median_ms": 1.4368149999199886,
+        "min_ms": 1.4297750000196174,
+        "max_ms": 1.4674720000584784
+      },
+      "prepared": {
+        "median_ms": 1.2386649999598376,
+        "min_ms": 1.2279759999955786,
+        "max_ms": 1.2498969999796827
+      }
+    },
+    {
+      "kind": "command",
+      "points": 0,
+      "side_m": 0.6,
+      "baseline": {
+        "median_ms": 2.0193619999417933,
+        "min_ms": 2.005729999950745,
+        "max_ms": 2.0401310000579542
+      },
+      "optimized": {
+        "median_ms": 0.50136000004386,
+        "min_ms": 0.4976159999614538,
+        "max_ms": 0.5122079999182461
+      },
+      "prepared": {
+        "median_ms": 0.2995940000118935,
+        "min_ms": 0.29524199999286793,
+        "max_ms": 0.31037899998409557
+      }
+    },
+    {
+      "kind": "prepare",
+      "points": 0,
+      "side_m": 0.6,
+      "optimized": {
+        "median_ms": 0.17789300000004005,
+        "min_ms": 0.17405400001280213,
+        "max_ms": 0.19568599998365244
+      }
+    },
+    {
+      "kind": "path",
+      "points": 500,
+      "side_m": 0.6,
+      "baseline": {
+        "median_ms": 31.220609000001787,
+        "min_ms": 31.138687000066056,
+        "max_ms": 31.31680400008463
+      },
+      "optimized": {
+        "median_ms": 1.7220409999936237,
+        "min_ms": 1.7025839999860182,
+        "max_ms": 1.7380409999532276
+      },
+      "prepared": {
+        "median_ms": 1.24416900007418,
+        "min_ms": 1.232135999998718,
+        "max_ms": 1.2571610000122746
+      }
+    },
+    {
+      "kind": "command",
+      "points": 500,
+      "side_m": 0.6,
+      "baseline": {
+        "median_ms": 3.9208009999356364,
+        "min_ms": 3.876990999970076,
+        "max_ms": 3.9671709999993254
+      },
+      "optimized": {
+        "median_ms": 0.7830339999372882,
+        "min_ms": 0.7760249999364532,
+        "max_ms": 0.7999299999710274
+      },
+      "prepared": {
+        "median_ms": 0.313834000053248,
+        "min_ms": 0.31191400000807334,
+        "max_ms": 0.3250669999488309
+      }
+    },
+    {
+      "kind": "prepare",
+      "points": 500,
+      "side_m": 0.6,
+      "optimized": {
+        "median_ms": 0.4467349999686121,
+        "min_ms": 0.4429260000051727,
+        "max_ms": 0.48395099997833313
+      }
+    },
+    {
+      "kind": "path",
+      "points": 4800,
+      "side_m": 0.6,
+      "baseline": {
+        "median_ms": 34.1299850000496,
+        "min_ms": 34.03587000002517,
+        "max_ms": 34.514125999976386
+      },
+      "optimized": {
+        "median_ms": 4.681017999928372,
+        "min_ms": 4.67064899999059,
+        "max_ms": 4.7267469999496825
+      },
+      "prepared": {
+        "median_ms": 1.2475290000111272,
+        "min_ms": 1.2421210000184146,
+        "max_ms": 1.255690000107279
+      }
+    },
+    {
+      "kind": "command",
+      "points": 4800,
+      "side_m": 0.6,
+      "baseline": {
+        "median_ms": 6.90121899992846,
+        "min_ms": 6.859361000010722,
+        "max_ms": 6.983622000007017
+      },
+      "optimized": {
+        "median_ms": 3.739418999998634,
+        "min_ms": 3.7338509999926828,
+        "max_ms": 3.758554999990338
+      },
+      "prepared": {
+        "median_ms": 0.3139630000532634,
+        "min_ms": 0.31047499999203865,
+        "max_ms": 0.3270830000019487
+      }
+    },
+    {
+      "kind": "prepare",
+      "points": 4800,
+      "side_m": 0.6,
+      "optimized": {
+        "median_ms": 3.409712000006948,
+        "min_ms": 3.386191000004146,
+        "max_ms": 3.4286889999748382
+      }
+    },
+    {
+      "kind": "path",
+      "points": 500,
+      "side_m": 0.26,
+      "baseline": {
+        "median_ms": 31.02239500003634,
+        "min_ms": 30.86395800005448,
+        "max_ms": 31.148063000046022
+      },
+      "optimized": {
+        "median_ms": 1.7169850000300357,
+        "min_ms": 1.7046320000417836,
+        "max_ms": 1.734104999968622
+      },
+      "prepared": {
+        "median_ms": 1.2445849999949132,
+        "min_ms": 1.2386640000840998,
+        "max_ms": 1.254249999988133
+      }
+    },
+    {
+      "kind": "command",
+      "points": 500,
+      "side_m": 0.26,
+      "baseline": {
+        "median_ms": 1.3210040000330991,
+        "min_ms": 1.3072110000393877,
+        "max_ms": 1.3424439999880633
+      },
+      "optimized": {
+        "median_ms": 1.4765930000066874,
+        "min_ms": 1.472016999969128,
+        "max_ms": 1.4946410000220567
+      },
+      "prepared": {
+        "median_ms": 1.0031049999952302,
+        "min_ms": 0.9979210000210514,
+        "max_ms": 1.0218579999445865
+      }
+    },
+    {
+      "kind": "prepare",
+      "points": 500,
+      "side_m": 0.26,
+      "optimized": {
+        "median_ms": 0.44939099996099685,
+        "min_ms": 0.44260599997869576,
+        "max_ms": 0.4725589999452495
+      }
+    },
+    {
+      "kind": "path",
+      "points": 4800,
+      "side_m": 0.26,
+      "baseline": {
+        "median_ms": 33.953850999978386,
+        "min_ms": 33.853143999976965,
+        "max_ms": 34.013693000019884
+      },
+      "optimized": {
+        "median_ms": 4.619896000008339,
+        "min_ms": 4.614134999997077,
+        "max_ms": 4.633048000073359
+      },
+      "prepared": {
+        "median_ms": 1.2533530000382598,
+        "min_ms": 1.236521000009816,
+        "max_ms": 1.274857999987944
+      }
+    },
+    {
+      "kind": "command",
+      "points": 4800,
+      "side_m": 0.26,
+      "baseline": {
+        "median_ms": 4.242412000053264,
+        "min_ms": 4.225706999932299,
+        "max_ms": 4.434673999980987
+      },
+      "optimized": {
+        "median_ms": 4.403921000061928,
+        "min_ms": 4.382543999895461,
+        "max_ms": 4.499539999983426
+      },
+      "prepared": {
+        "median_ms": 0.9998730000688738,
+        "min_ms": 0.9877449999748933,
+        "max_ms": 1.014369000017723
+      }
+    },
+    {
+      "kind": "prepare",
+      "points": 4800,
+      "side_m": 0.26,
+      "optimized": {
+        "median_ms": 3.3558869999978924,
+        "min_ms": 3.3364620001066214,
+        "max_ms": 3.37047799996526
+      }
+    }
+  ],
+  "seed": 4001,
+  "randomized_path_cases": 700,
+  "randomized_command_cases": 700,
+  "route_length_m": 3.0,
+  "route_pose_count": 301,
+  "prepared_build_included_in_prepared_check": false,
+  "baseline_sha256": "890136981cd8e65f59e77df7afe2862808c183fa561304ab710c502d9ffdd09e",
+  "optimized_sha256": "8b9c1e8f740334a073c4f4390c9f1122e1e53aac46225c638e09b82252647b4c",
+  "note": "Prepared geometry is built once per source snapshot. The prepare row measures that cost; path/command prepared rows measure reused geometry only. Source-age, current-pose and swept-body checks are still performed each call. Offline synthetic measurements do not establish real robot end-to-end latency."
+}

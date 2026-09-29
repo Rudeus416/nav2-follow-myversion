@@ -152,12 +152,13 @@ class ReplanSupportTests(unittest.TestCase):
         record=NS(config_version=1, frame=frame)
         layer.engine=NS(lock=threading.RLock(), _config_version=1, _stream_epoch=1,
                         _buffer_m2={1:record})
-        layer.nav=NS(lock=threading.RLock(),vision_enabled=True,
-                     person_navigation=NS(obstacle_replan=NS(active=True)))
+        layer.nav=NS(lock=threading.RLock(),vision_enabled=True,enabled=True,generation=1,
+                     person_navigation=NS(obstacle_replan=NS(active=True,holding=False,
+                         current_path=self.path)))
         layer.semantic=NS(set_enabled=Mock(),offer=Mock(),snapshot=Mock(return_value=None))
         layer._tick_locked=Mock()
-        checks=[]
-        def check_unlocked(*args):
+        checks=[];checked=threading.Event()
+        def check_unlocked(*args,**kwargs):
             acquired=[]
             def worker():
                 locked=layer.nav.lock.acquire(timeout=.2)
@@ -167,10 +168,16 @@ class ReplanSupportTests(unittest.TestCase):
             worker_thread.start(); worker_thread.join(1.)
             self.assertEqual(acquired,[True])
             checks.append(True)
+            if len(checks)==2:checked.set()
             return FOOT, time.monotonic()
         layer.nav.navigation_footprint=check_unlocked
         with patch('nav2.replan_support.monitor_route',side_effect=check_unlocked):
-            layer.tick()
+            try:
+                layer.tick()
+                self.assertTrue(checked.wait(1.))
+            finally:
+                monitor=getattr(layer,'_route_monitor',None)
+                if monitor is not None:monitor.close()
         self.assertEqual(len(checks),2)
 
     def test_inactive_legacy_navigation_does_not_acquire_new_requirements(self):
