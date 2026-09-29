@@ -68,8 +68,19 @@ class RouteMonitorIntegrationTests(unittest.TestCase):
             entered.set();release.wait(2.);return False
         with patch('nav2.replan_safety.path_clear',side_effect=geometry):
             try:
-                self.layer.tick();self.assertTrue(entered.wait(1.))
+                self.layer.tick()
+                self.assertTrue(entered.wait(1.),str(self.layer._route_monitor.snapshot()))
                 with self.nav.lock:self.layer.invalidate()
+                release.set()
+                deadline=time.monotonic()+1.
+                while time.monotonic()<deadline:
+                    status=self.layer._route_monitor.snapshot()
+                    if status['checks'] and not status['running']:break
+                    time.sleep(.005)
+                self.assertGreater(status['checks'],0,str(status))
+                self.assertFalse(status['running'])
+                self.assertFalse(status['closed'])  # Revision, not close(), revoked it.
+                self.task.trigger.assert_not_called()
             finally:
                 release.set();self.layer._route_monitor.close()
         self.task.trigger.assert_not_called()
